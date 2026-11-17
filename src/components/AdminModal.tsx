@@ -405,7 +405,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 type="password"
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value)}
-                placeholder="Masukkan PIN (default: 1234)"
+                placeholder="Masukkan PIN Panitia"
                 className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 text-center tracking-widest font-bold"
                 autoFocus
                 required
