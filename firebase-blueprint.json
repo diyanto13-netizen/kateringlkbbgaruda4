@@ -130,6 +130,11 @@
         "waTerkirim": {
           "type": "boolean",
           "description": "Status pengiriman kwitansi melalui WhatsApp Gateway Fonnte."
+        },
+        "statusPembayaran": {
+          "type": "string",
+          "description": "Status verifikasi pembayaran oleh panitia (Pending atau Lunas).",
+          "enum": ["Pending", "Lunas"]
         }
       },
       "required": [
@@ -149,7 +154,8 @@
         "totalHarga",
         "fileUrl",
         "catatan",
-        "waTerkirim"
+        "waTerkirim",
+        "statusPembayaran"
       ]
     },
     "PanelSettings": {

@@ -72,7 +72,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ order, onClose }) =>
         className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto"
       >
         {/* Header Kwitansi */}
-        <div className="bg-gradient-to-r from-[#091e3a] via-[#103774] to-[#1e40af] px-5 py-4 text-white border-b-3 border-amber-500 flex items-start justify-between">
+        <div className="bg-gradient-to-r from-[#0b1f3a] via-[#163a70] to-[#1e40af] px-5 py-4 text-white border-b-3 border-amber-500 flex items-start justify-between">
           <div>
             <div className="inline-flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold px-2.5 py-0.5 rounded-full mb-1.5">
               <CheckCircle2 className="w-3.5 h-3.5" />

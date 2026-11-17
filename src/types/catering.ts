@@ -8,6 +8,7 @@ export interface MenuItem {
 
 export type TanggalMakan = 'Sabtu, 21 Nop 2026' | 'Minggu, 22 Nop 2026';
 export type SesiMakan = 'Makan Pagi' | 'Makan Siang' | 'Makan Sore/Malam';
+export type StatusPembayaran = 'Pending' | 'Lunas';
 
 export interface OrderPayload {
   namaSekolah: string;
@@ -41,6 +42,7 @@ export interface OrderRecord {
   fileUrl: string;
   catatan: string;
   waTerkirim: boolean;
+  statusPembayaran: StatusPembayaran;
 }
 
 export interface FirebaseCustomConfig {

@@ -118,8 +118,11 @@ export async function exportOrdersToExcel(orders: OrderRecord[]): Promise<void> 
   orders.forEach((o, index) => {
     const rowNumber = startDataRow + index;
     const statusWa = o.waTerkirim ? 'WA Terkirim' : 'WA Pending';
+    const statusBayar = o.statusPembayaran === 'Lunas' ? 'Lunas' : 'Pending';
     const catatanGabung =
-      o.catatan && o.catatan !== '-' ? `${o.catatan}\n(${statusWa})` : `(${statusWa})`;
+      o.catatan && o.catatan !== '-'
+        ? `${o.catatan}\n(${statusBayar} | ${statusWa})`
+        : `(${statusBayar} | ${statusWa})`;
 
     const rowValues: (string | number)[] = [
       index + 1,

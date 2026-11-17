@@ -21,6 +21,24 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <script>
+      window.addEventListener(
+        'error',
+        function (event) {
+          if (
+            event &&
+            typeof event.filename === 'string' &&
+            event.filename.indexOf('chrome-extension://') === 0 &&
+            typeof event.message === 'string' &&
+            event.message.indexOf('Cannot set property fetch') !== -1
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        },
+        true
+      );
+    </script>
   </head>
   <body>
     <div id="root"></div>

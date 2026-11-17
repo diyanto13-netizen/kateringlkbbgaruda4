@@ -39,13 +39,13 @@ service cloud.firestore {
           'waktu', 'createdAt', 'orderId', 'namaSekolah', 'namaPj', 'noWa',
           'namaPaket', 'hargaSatuan', 'jumlahPorsi', 'tanggalMakan',
           'sesiMakan', 'jamMakan', 'jadwalMakan', 'totalHarga',
-          'fileUrl', 'catatan', 'waTerkirim'
+          'fileUrl', 'catatan', 'waTerkirim', 'statusPembayaran'
         ])
         && data.keys().hasOnly([
           'waktu', 'createdAt', 'orderId', 'namaSekolah', 'namaPj', 'noWa',
           'namaPaket', 'hargaSatuan', 'jumlahPorsi', 'tanggalMakan',
           'sesiMakan', 'jamMakan', 'jadwalMakan', 'totalHarga',
-          'fileUrl', 'catatan', 'waTerkirim'
+          'fileUrl', 'catatan', 'waTerkirim', 'statusPembayaran'
         ])
         && data.waktu is string && data.waktu.size() >= 10 && data.waktu.size() <= 32
         && data.createdAt is timestamp
@@ -63,7 +63,8 @@ service cloud.firestore {
         && data.totalHarga is number && data.totalHarga == data.hargaSatuan * data.jumlahPorsi
         && data.fileUrl is string && data.fileUrl.size() >= 5 && data.fileUrl.size() <= 750000
         && data.catatan is string && data.catatan.size() <= 500
-        && data.waTerkirim is bool;
+        && data.waTerkirim is bool
+        && data.statusPembayaran is string && data.statusPembayaran in ['Pending', 'Lunas'];
     }
 
     function isValidPanelSettings(data) {
@@ -96,12 +97,13 @@ service cloud.firestore {
       allow create: if isValidId(orderId)
         && isValidOrder(incoming())
         && incoming().orderId == orderId
-        && incoming().createdAt == request.time;
+        && incoming().createdAt == request.time
+        && incoming().statusPembayaran == 'Pending';
       allow update: if isValidId(orderId)
         && isValidOrder(incoming())
         && incoming().orderId == existing().orderId
         && incoming().createdAt == existing().createdAt
-        && incoming().diff(existing()).affectedKeys().hasOnly(['waTerkirim', 'catatan']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['waTerkirim', 'catatan', 'statusPembayaran']);
       allow delete: if isValidId(orderId);
     }
 
