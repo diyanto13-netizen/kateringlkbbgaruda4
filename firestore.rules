@@ -66,6 +66,14 @@ service cloud.firestore {
         && data.waTerkirim is bool;
     }
 
+    function isValidPanelSettings(data) {
+      return data.keys().hasAll(['adminPin', 'fonnteToken', 'updatedAt'])
+        && data.keys().hasOnly(['adminPin', 'fonnteToken', 'updatedAt'])
+        && data.adminPin is string && data.adminPin.size() >= 4 && data.adminPin.size() <= 32 && data.adminPin.matches('^[a-zA-Z0-9]+$')
+        && data.fonnteToken is string && data.fonnteToken.size() >= 1 && data.fonnteToken.size() <= 200
+        && data.updatedAt is timestamp;
+    }
+
     // ===============================================================
     // Collection Rules
     // ===============================================================
@@ -95,6 +103,20 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['waTerkirim', 'catatan']);
       allow delete: if isValidId(orderId);
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == 'panel';
+      allow create: if isValidId(settingId)
+        && settingId == 'panel'
+        && isValidPanelSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId)
+        && settingId == 'panel'
+        && isValidPanelSettings(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['adminPin', 'fonnteToken', 'updatedAt']);
+      allow delete: if false;
     }
   }
 }

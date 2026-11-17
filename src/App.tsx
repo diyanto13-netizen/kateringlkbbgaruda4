@@ -19,6 +19,8 @@ import type {
 import {
   bersihkanUrlGambar,
   buatTeksKwitansi,
+  DEFAULT_ADMIN_PIN,
+  DEFAULT_FONNTE_TOKEN,
   DEFAULT_MENUS,
   FALLBACK_IMAGE_SVG,
   formatWaktuJakarta,
@@ -29,12 +31,19 @@ import {
 } from './utils/cateringHelpers';
 import { AdminModal } from './components/AdminModal';
 import { ReceiptModal } from './components/ReceiptModal';
+import type { PanelSettings } from './types/catering';
 
 export default function App() {
   // Catalog state
   const [firestoreMenus, setFirestoreMenus] = useState<MenuItem[]>([]);
   const [hasFirestoreMenus, setHasFirestoreMenus] = useState(false);
   const autoSeedAttemptedRef = useRef(false);
+
+  // Cloud settings state (/settings/panel)
+  const [cloudAdminPin, setCloudAdminPin] = useState<string>(DEFAULT_ADMIN_PIN);
+  const [cloudFonnteToken, setCloudFonnteToken] = useState<string>(DEFAULT_FONNTE_TOKEN);
+  const [settingsLoadedFromCloud, setSettingsLoadedFromCloud] = useState(false);
+  const autoSeedSettingsAttemptedRef = useRef(false);
 
   // Form fields state
   const [namaSekolah, setNamaSekolah] = useState('');
@@ -89,6 +98,35 @@ export default function App() {
         console.warn('Gagal memuat katalog menus dari Firestore, memakai menu default:', error);
         setFirestoreMenus([]);
         setHasFirestoreMenus(false);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Load cloud settings (/settings/panel) real-time from Firestore & auto-seed if missing
+  useEffect(() => {
+    const settingsRef = doc(db, 'settings', 'panel');
+    const unsub = onSnapshot(
+      settingsRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as PanelSettings;
+          if (data.adminPin) setCloudAdminPin(data.adminPin);
+          if (data.fonnteToken) setCloudFonnteToken(data.fonnteToken);
+          setSettingsLoadedFromCloud(true);
+        } else if (!autoSeedSettingsAttemptedRef.current) {
+          autoSeedSettingsAttemptedRef.current = true;
+          setDoc(settingsRef, {
+            adminPin: DEFAULT_ADMIN_PIN,
+            fonnteToken: DEFAULT_FONNTE_TOKEN,
+            updatedAt: serverTimestamp(),
+          }).catch((seedErr) => {
+            console.warn('Auto-Seeder settings/panel dilewati:', seedErr);
+          });
+        }
+      },
+      (error) => {
+        console.warn('Gagal memuat settings/panel dari Firestore, memakai nilai default:', error);
       }
     );
     return () => unsub();
@@ -266,7 +304,11 @@ export default function App() {
         catatan: cleanCatatan,
       });
 
-      const waTerkirim = await kirimPesanWhatsAppOtomatis(cleanWa, textKwitansi);
+      const waTerkirim = await kirimPesanWhatsAppOtomatis(
+        cleanWa,
+        textKwitansi,
+        cloudFonnteToken
+      );
 
       setSubmitStep('Menyimpan pesanan ke database panitia...');
       const orderPayload: OrderRecord = {
@@ -673,6 +715,9 @@ export default function App() {
         onClose={() => setAdminOpen(false)}
         menus={displayedMenus}
         hasFirestoreMenus={hasFirestoreMenus}
+        cloudAdminPin={cloudAdminPin}
+        cloudFonnteToken={cloudFonnteToken}
+        settingsLoadedFromCloud={settingsLoadedFromCloud}
       />
     </div>
   );

@@ -52,3 +52,9 @@ export interface FirebaseCustomConfig {
   appId: string;
   firestoreDatabaseId?: string;
 }
+
+export interface PanelSettings {
+  adminPin: string;
+  fonnteToken: string;
+  updatedAt?: unknown;
+}

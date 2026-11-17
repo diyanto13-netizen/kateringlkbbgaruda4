@@ -152,22 +152,31 @@
         "waTerkirim"
       ]
     },
-    "AdminUser": {
-      "title": "AdminUser",
-      "description": "Daftar UID panitia yang memiliki hak akses admin.",
+    "PanelSettings": {
+      "title": "PanelSettings",
+      "description": "Pengaturan sistem Panitia yang tersimpan di Cloud Firestore termasuk PIN Akses Panel Panitia dan Token Fonnte.",
       "type": "object",
       "properties": {
-        "email": {
+        "adminPin": {
           "type": "string",
-          "format": "email",
-          "maxLength": 150
+          "description": "PIN Akses Panel Panitia (4-32 karakter alfanumerik).",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9]+$"
         },
-        "role": {
+        "fonnteToken": {
           "type": "string",
-          "enum": ["admin"]
+          "description": "Token WhatsApp Gateway Fonnte.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp terakhir diperbarui."
         }
       },
-      "required": ["email", "role"]
+      "required": ["adminPin", "fonnteToken", "updatedAt"]
     }
   },
   "firestore": {
@@ -179,9 +188,9 @@
       "schema": { "$ref": "#/entities/Order" },
       "description": "Koleksi data pesanan katering masuk dari kontingen peserta."
     },
-    "/admins/{userId}": {
-      "schema": { "$ref": "#/entities/AdminUser" },
-      "description": "Koleksi daftar UID admin panitia tambahan."
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PanelSettings" },
+      "description": "Koleksi pengaturan cloud aplikasi termasuk PIN Akses Panel Panitia."
     }
   }
 }

@@ -6,6 +6,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
 import {
@@ -39,20 +40,19 @@ import {
   DEFAULT_ADMIN_PIN,
   DEFAULT_FONNTE_TOKEN,
   DEFAULT_MENUS,
-  exportOrdersToCsv,
   FALLBACK_IMAGE_SVG,
-  getActiveAdminPin,
-  getActiveFonnteToken,
   kirimPesanWhatsAppOtomatis,
-  LS_ADMIN_PIN_KEY,
-  LS_FONNTE_TOKEN_KEY,
 } from '../utils/cateringHelpers';
+import { exportOrdersToExcel } from '../utils/exportExcel';
 
 interface AdminModalProps {
   isOpen: boolean;
   onClose: () => void;
   menus: MenuItem[];
   hasFirestoreMenus: boolean;
+  cloudAdminPin: string;
+  cloudFonnteToken: string;
+  settingsLoadedFromCloud: boolean;
 }
 
 type AdminTab = 'orders' | 'menus' | 'config';
@@ -62,6 +62,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onClose,
   menus,
   hasFirestoreMenus,
+  cloudAdminPin,
+  cloudFonnteToken,
+  settingsLoadedFromCloud,
 }) => {
   const [pinInput, setPinInput] = useState('');
   const [pinVerified, setPinVerified] = useState(false);
@@ -93,8 +96,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
     return JSON.stringify(activeConfig, null, 2);
   });
-  const [fonnteTokenInput, setFonnteTokenInput] = useState(() => getActiveFonnteToken());
-  const [adminPinSetting, setAdminPinSetting] = useState(() => getActiveAdminPin());
+  const [fonnteTokenInput, setFonnteTokenInput] = useState(cloudFonnteToken);
+  const [adminPinSetting, setAdminPinSetting] = useState(cloudAdminPin);
+  const [configSaving, setConfigSaving] = useState(false);
+
+  useEffect(() => {
+    setFonnteTokenInput(cloudFonnteToken);
+  }, [cloudFonnteToken]);
+
+  useEffect(() => {
+    setAdminPinSetting(cloudAdminPin);
+  }, [cloudAdminPin]);
 
   // Reset error saat modal ditutup
   useEffect(() => {
@@ -149,7 +161,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
-    const expected = getActiveAdminPin();
+    const expected = cloudAdminPin || DEFAULT_ADMIN_PIN;
     if (pinInput.trim() === expected) {
       setPinVerified(true);
       setPinError('');
@@ -238,7 +250,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       catatan: order.catatan,
     });
 
-    const ok = await kirimPesanWhatsAppOtomatis(order.noWa, text);
+    const ok = await kirimPesanWhatsAppOtomatis(order.noWa, text, cloudFonnteToken);
     if (ok) {
       try {
         await setDoc(
@@ -264,33 +276,85 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  const handleSaveConfig = (e: React.FormEvent) => {
+  const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanPin = adminPinSetting.trim();
+    const cleanToken = fonnteTokenInput.trim() || DEFAULT_FONNTE_TOKEN;
+
+    if (!/^[a-zA-Z0-9]{4,32}$/.test(cleanPin)) {
+      setStatusMessage(
+        'PIN Akses Panel Panitia harus terdiri dari 4 sampai 32 karakter huruf/angka tanpa spasi.'
+      );
+      return;
+    }
+
+    let parsedConfig: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(configJsonInput);
-      if (!parsed.apiKey || !parsed.projectId || !parsed.appId) {
+      parsedConfig = JSON.parse(configJsonInput) as Record<string, unknown>;
+      if (!parsedConfig.apiKey || !parsedConfig.projectId || !parsedConfig.appId) {
         setStatusMessage('JSON firebaseConfig harus memiliki apiKey, projectId, dan appId.');
         return;
       }
-      localStorage.setItem(LS_FIREBASE_CONFIG_KEY, JSON.stringify(parsed, null, 2));
-      localStorage.setItem(LS_FONNTE_TOKEN_KEY, fonnteTokenInput.trim() || DEFAULT_FONNTE_TOKEN);
-      localStorage.setItem(LS_ADMIN_PIN_KEY, adminPinSetting.trim() || DEFAULT_ADMIN_PIN);
-      setStatusMessage('Konfigurasi disimpan ke localStorage. Halaman akan dimuat ulang...');
-      setTimeout(() => window.location.reload(), 900);
     } catch {
-      setStatusMessage('Format JSON firebaseConfig tidak valid. Periksa tanda kutip dan kurung kurawal.');
+      setStatusMessage(
+        'Format JSON firebaseConfig tidak valid. Periksa tanda kutip dan kurung kurawal.'
+      );
+      return;
+    }
+
+    setConfigSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'panel'), {
+        adminPin: cleanPin,
+        fonnteToken: cleanToken,
+        updatedAt: serverTimestamp(),
+      });
+
+      const currentSerialized = JSON.stringify(activeConfig);
+      const nextSerialized = JSON.stringify(parsedConfig);
+      if (currentSerialized !== nextSerialized) {
+        localStorage.setItem(LS_FIREBASE_CONFIG_KEY, JSON.stringify(parsedConfig, null, 2));
+        setStatusMessage(
+          'PIN & Token tersimpan di Cloud. Konfigurasi Firebase baru diterapkan, memuat ulang...'
+        );
+        setTimeout(() => window.location.reload(), 900);
+      } else {
+        setStatusMessage(
+          'PIN Akses Panel Panitia & Token Fonnte berhasil disimpan ke Cloud Firestore!'
+        );
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/panel');
+    } finally {
+      setConfigSaving(false);
     }
   };
 
-  const handleResetConfig = () => {
-    localStorage.removeItem(LS_FIREBASE_CONFIG_KEY);
-    localStorage.removeItem(LS_FONNTE_TOKEN_KEY);
-    localStorage.removeItem(LS_ADMIN_PIN_KEY);
-    setConfigJsonInput(getDefaultConfigJson());
-    setFonnteTokenInput(DEFAULT_FONNTE_TOKEN);
-    setAdminPinSetting(DEFAULT_ADMIN_PIN);
-    setStatusMessage('Konfigurasi direset ke default aplikasi. Halaman akan dimuat ulang...');
-    setTimeout(() => window.location.reload(), 900);
+  const handleResetConfig = async () => {
+    setConfigSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'panel'), {
+        adminPin: DEFAULT_ADMIN_PIN,
+        fonnteToken: DEFAULT_FONNTE_TOKEN,
+        updatedAt: serverTimestamp(),
+      });
+      const hadCustom = isCustomFirebaseConfigActive;
+      localStorage.removeItem(LS_FIREBASE_CONFIG_KEY);
+      setConfigJsonInput(getDefaultConfigJson());
+      setFonnteTokenInput(DEFAULT_FONNTE_TOKEN);
+      setAdminPinSetting(DEFAULT_ADMIN_PIN);
+
+      if (hadCustom) {
+        setStatusMessage('Konfigurasi direset ke default aplikasi. Halaman akan dimuat ulang...');
+        setTimeout(() => window.location.reload(), 900);
+      } else {
+        setStatusMessage('PIN Panitia (1234) & Token Fonnte berhasil direset di Cloud Firestore.');
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/panel');
+    } finally {
+      setConfigSaving(false);
+    }
   };
 
   return (
@@ -459,12 +523,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     </h3>
                     <button
                       type="button"
-                      onClick={() => exportOrdersToCsv(orders)}
+                      onClick={() => void exportOrdersToExcel(orders)}
                       disabled={orders.length === 0}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Export CSV / Excel
+                      Export Excel (.XLSX) Siap Cetak
                     </button>
                   </div>
 
@@ -734,30 +798,44 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* TAB 3: KONFIGURASI SISTEM */}
               {activeTab === 'config' && (
                 <form onSubmit={handleSaveConfig} className="space-y-4">
-                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 text-xs text-slate-700">
-                    <span className="font-bold">Sumber Konfigurasi Aktif:</span>{' '}
-                    {isCustomFirebaseConfigActive
-                      ? 'Custom School Config (tersimpan di localStorage)'
-                      : `Project Firebase Terprovisi (${activeConfig.projectId})`}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      JSON firebaseConfig (Opsional untuk pindah ke Project Firebase Sekolah)
-                    </label>
-                    <textarea
-                      rows={9}
-                      value={configJsonInput}
-                      onChange={(e) => setConfigJsonInput(e.target.value)}
-                      className="w-full p-3 font-mono text-xs bg-slate-900 text-emerald-300 rounded-xl border border-slate-700 focus:outline-none"
-                      required
-                    />
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 text-xs text-slate-700 space-y-1">
+                    <div>
+                      <span className="font-bold">Sumber Konfigurasi Firebase:</span>{' '}
+                      {isCustomFirebaseConfigActive
+                        ? 'Custom School Config (tersimpan di localStorage)'
+                        : `Project Firebase Terprovisi (${activeConfig.projectId})`}
+                    </div>
+                    <div>
+                      <span className="font-bold">Status Sinkronisasi PIN &amp; Token:</span>{' '}
+                      {settingsLoadedFromCloud ? (
+                        <span className="text-emerald-700 font-bold">
+                          ✓ Tersimpan &amp; Sinkron di Cloud Firestore (settings/panel)
+                        </span>
+                      ) : (
+                        <span className="text-amber-700 font-semibold">
+                          Menunggu sinkronisasi Cloud Firestore...
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-800 mb-1">
-                        FONNTE_TOKEN (WhatsApp Gateway)
+                        PIN Akses Panel Panitia (Tersimpan di Cloud Firestore)
+                      </label>
+                      <input
+                        type="text"
+                        value={adminPinSetting}
+                        onChange={(e) => setAdminPinSetting(e.target.value)}
+                        placeholder="Minimal 4 karakter (huruf/angka)"
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">
+                        FONNTE_TOKEN (Tersimpan di Cloud Firestore)
                       </label>
                       <input
                         type="text"
@@ -767,32 +845,35 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         required
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-1">
-                        PIN Akses Panel Panitia
-                      </label>
-                      <input
-                        type="text"
-                        value={adminPinSetting}
-                        onChange={(e) => setAdminPinSetting(e.target.value)}
-                        className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
-                        required
-                      />
-                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
+                      JSON firebaseConfig (Opsional untuk pindah ke Project Firebase Sekolah)
+                    </label>
+                    <textarea
+                      rows={8}
+                      value={configJsonInput}
+                      onChange={(e) => setConfigJsonInput(e.target.value)}
+                      className="w-full p-3 font-mono text-xs bg-slate-900 text-emerald-300 rounded-xl border border-slate-700 focus:outline-none"
+                      required
+                    />
                   </div>
 
                   <div className="flex flex-wrap gap-2.5">
                     <button
                       type="submit"
-                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                      disabled={configSaving}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                     >
                       <Save className="w-4 h-4" />
-                      Simpan Konfigurasi &amp; Terapkan
+                      {configSaving ? 'Menyimpan ke Cloud...' : 'Simpan Konfigurasi ke Cloud'}
                     </button>
                     <button
                       type="button"
                       onClick={handleResetConfig}
-                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                      disabled={configSaving}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className="w-4 h-4" />
                       Reset ke Default
