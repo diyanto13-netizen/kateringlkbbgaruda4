@@ -48,8 +48,6 @@ import {
 import { AdminModal } from './components/AdminModal';
 import { ReceiptModal } from './components/ReceiptModal';
 
-const PORTION_PRESETS = [10, 20, 30, 50];
-
 export default function App() {
   // Catalog state
   const [firestoreMenus, setFirestoreMenus] = useState<MenuItem[]>([]);
@@ -590,62 +588,41 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Stepper Jumlah Porsi + Quick Presets */}
+              {/* Stepper Jumlah Porsi */}
               <div>
                 <label htmlFor="jumlahPorsi" className="field-label">
                   Jumlah Porsi Pesanan <span className="field-required">*</span>
                 </label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <div className="inline-flex items-center border-1.5 border-slate-300 rounded-xl bg-white overflow-hidden w-full sm:w-auto">
-                    <button
-                      type="button"
-                      onClick={() => setJumlahPorsi((prev) => Math.max(1, prev - 1))}
-                      className="w-12 h-11 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 border-r border-slate-200 transition cursor-pointer"
-                      aria-label="Kurangi jumlah porsi"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <input
-                      type="number"
-                      id="jumlahPorsi"
-                      className="w-full sm:w-24 h-11 text-center text-base font-extrabold text-slate-900 bg-white outline-none"
-                      min={1}
-                      value={jumlahPorsi}
-                      onChange={(e) => setJumlahPorsi(Math.max(1, Number(e.target.value) || 1))}
-                      onInput={(e) =>
-                        setJumlahPorsi(Math.max(1, Number((e.target as HTMLInputElement).value) || 1))
-                      }
-                      onKeyDown={cegahEnterSubmit}
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setJumlahPorsi((prev) => prev + 1)}
-                      className="w-12 h-11 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 border-l border-slate-200 transition cursor-pointer"
-                      aria-label="Tambah jumlah porsi"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Quick Preset Chips for Contingents */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[11px] font-semibold text-slate-500 mr-0.5">Cepat:</span>
-                    {PORTION_PRESETS.map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setJumlahPorsi(preset)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                          jumlahPorsi === preset
-                            ? 'bg-[#0b1f3a] text-amber-300 border-[#0b1f3a]'
-                            : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        {preset} porsi
-                      </button>
-                    ))}
-                  </div>
+                <div className="inline-flex items-center border-1.5 border-slate-300 rounded-xl bg-white overflow-hidden w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setJumlahPorsi((prev) => Math.max(1, prev - 1))}
+                    className="w-12 h-11 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 border-r border-slate-200 transition cursor-pointer"
+                    aria-label="Kurangi jumlah porsi"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="number"
+                    id="jumlahPorsi"
+                    className="w-full sm:w-28 h-11 text-center text-base font-extrabold text-slate-900 bg-white outline-none"
+                    min={1}
+                    value={jumlahPorsi}
+                    onChange={(e) => setJumlahPorsi(Math.max(1, Number(e.target.value) || 1))}
+                    onInput={(e) =>
+                      setJumlahPorsi(Math.max(1, Number((e.target as HTMLInputElement).value) || 1))
+                    }
+                    onKeyDown={cegahEnterSubmit}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setJumlahPorsi((prev) => prev + 1)}
+                    className="w-12 h-11 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 border-l border-slate-200 transition cursor-pointer"
+                    aria-label="Tambah jumlah porsi"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
