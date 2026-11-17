@@ -44,7 +44,7 @@ export async function exportOrdersToExcel(orders: OrderRecord[]): Promise<void> 
     },
   });
 
-  const colWidths = [5, 21, 18, 25, 20, 16, 26, 15, 9, 17, 29, 25];
+  const colWidths = [5, 25, 18, 25, 20, 16, 26, 15, 9, 17, 29, 26];
   sheet.columns = colWidths.map((width) => ({ width }));
 
   const totalPorsi = orders.reduce((acc, o) => acc + Number(o.jumlahPorsi || 0), 0);
@@ -96,7 +96,7 @@ export async function exportOrdersToExcel(orders: OrderRecord[]): Promise<void> 
     'Porsi',
     'Total Bayar',
     'Jadwal Pengantaran',
-    'Catatan & Status WA',
+    'Status Bayar, WA & Catatan',
   ];
   const headerRow = sheet.getRow(5);
   headerRow.values = headers;
@@ -126,16 +126,16 @@ export async function exportOrdersToExcel(orders: OrderRecord[]): Promise<void> 
 
     const rowValues: (string | number)[] = [
       index + 1,
-      o.orderId,
-      `${o.waktu} WIB`,
-      o.namaSekolah,
-      o.namaPj,
-      String(o.noWa),
-      o.namaPaket,
-      Number(o.hargaSatuan),
-      Number(o.jumlahPorsi),
-      Number(o.totalHarga),
-      o.jadwalMakan,
+      o.orderId || '-',
+      `${o.waktu || '-'} WIB`,
+      o.namaSekolah || '-',
+      o.namaPj || '-',
+      String(o.noWa || '-'),
+      o.namaPaket || '-',
+      Number(o.hargaSatuan || 0),
+      Number(o.jumlahPorsi || 0),
+      Number(o.totalHarga || 0),
+      o.jadwalMakan || '-',
       catatanGabung,
     ];
 

@@ -65,7 +65,7 @@ export default function App() {
   const [namaPj, setNamaPj] = useState('');
   const [noWa, setNoWa] = useState('');
   const [selectedMenuId, setSelectedMenuId] = useState<string>('');
-  const [jumlahPorsi, setJumlahPorsi] = useState<number>(1);
+  const [porsiInput, setPorsiInput] = useState<string>('1');
   const [tanggalMakan, setTanggalMakan] = useState<TanggalMakan | ''>('');
   const [sesiMakan, setSesiMakan] = useState<SesiMakan | ''>('');
   const [jamMakan, setJamMakan] = useState('');
@@ -74,6 +74,7 @@ export default function App() {
   const [catatan, setCatatan] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const errorAlertRef = useRef<HTMLDivElement | null>(null);
 
   // UI state
   const [copyToast, setCopyToast] = useState(false);
@@ -82,6 +83,12 @@ export default function App() {
   const [submitStep, setSubmitStep] = useState('');
   const [completedOrder, setCompletedOrder] = useState<OrderRecord | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
+
+  const jumlahPorsi = useMemo(() => {
+    if (!porsiInput.trim()) return 0;
+    const parsed = parseInt(porsiInput, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.min(10000, parsed) : 0;
+  }, [porsiInput]);
 
   // Load menus real-time from Firestore, Auto-Seed if empty, fallback to DEFAULT_MENUS
   useEffect(() => {
@@ -248,12 +255,19 @@ export default function App() {
     setNamaPj('');
     setNoWa('');
     setSelectedMenuId('');
-    setJumlahPorsi(1);
+    setPorsiInput('1');
     setTanggalMakan('');
     setSesiMakan('');
     setJamMakan('');
     clearSelectedFile();
     setCatatan('');
+  };
+
+  const triggerFormError = (message: string) => {
+    setFormError(message);
+    setTimeout(() => {
+      errorAlertRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 30);
   };
 
   const prosesPesanan = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -263,41 +277,47 @@ export default function App() {
     const cleanSekolah = namaSekolah.trim();
     const cleanPj = namaPj.trim();
     const cleanWa = standarisasiNomorWA(noWa);
+    const porsiFinal = jumlahPorsi;
+    const cleanCatatan = catatan.trim() || '-';
 
-    if (cleanSekolah.length < 2) {
-      setFormError('Nama Sekolah / Kontingen wajib diisi (minimal 2 karakter).');
+    if (cleanSekolah.length < 2 || cleanSekolah.length > 150) {
+      triggerFormError('Nama Sekolah / Kontingen wajib diisi (2–150 karakter).');
       return;
     }
-    if (cleanPj.length < 2) {
-      setFormError('Nama Official / Penanggung Jawab wajib diisi.');
+    if (cleanPj.length < 2 || cleanPj.length > 120) {
+      triggerFormError('Nama Official / Penanggung Jawab wajib diisi (2–120 karakter).');
       return;
     }
     if (!/^62[0-9]{7,18}$/.test(cleanWa)) {
-      setFormError('Nomor WhatsApp tidak valid. Gunakan format 08... atau 628...');
+      triggerFormError('Nomor WhatsApp tidak valid. Gunakan format 08... atau 628...');
       return;
     }
     if (!selectedMenu) {
-      setFormError('Silakan pilih salah satu foto paket menu katering terlebih dahulu.');
+      triggerFormError('Silakan pilih salah satu foto paket menu katering terlebih dahulu.');
       return;
     }
-    if (!Number.isFinite(jumlahPorsi) || jumlahPorsi < 1) {
-      setFormError('Jumlah porsi pesanan minimal 1 porsi.');
+    if (!Number.isInteger(porsiFinal) || porsiFinal < 1 || porsiFinal > 10000) {
+      triggerFormError('Jumlah porsi pesanan harus antara 1 sampai 10.000 porsi.');
       return;
     }
     if (!tanggalMakan) {
-      setFormError('Silakan pilih Hari & Tanggal Pengantaran.');
+      triggerFormError('Silakan pilih Hari & Tanggal Pengantaran.');
       return;
     }
     if (!sesiMakan) {
-      setFormError('Silakan pilih Jadwal Pengantaran Makan (Pagi / Siang / Sore).');
+      triggerFormError('Silakan pilih Jadwal Pengantaran Makan (Pagi / Siang / Sore).');
       return;
     }
     if (!jamMakan) {
-      setFormError(`Silakan tentukan pukul berapa ${sesiMakan} dibutuhkan.`);
+      triggerFormError(`Silakan tentukan pukul berapa ${sesiMakan} dibutuhkan.`);
       return;
     }
     if (!buktiFile) {
-      setFormError('Wajib mengunggah foto bukti transfer pembayaran.');
+      triggerFormError('Wajib mengunggah foto bukti transfer pembayaran.');
+      return;
+    }
+    if (cleanCatatan.length > 500) {
+      triggerFormError('Catatan tambahan maksimal 500 karakter.');
       return;
     }
 
@@ -306,8 +326,8 @@ export default function App() {
     const orderId = generateOrderId(now);
     const waktu = formatWaktuJakarta(now);
     const jadwalMakan = `${tanggalMakan} | ${sesiMakan} (Pukul ${jamMakan} WIB)`;
-    const totalHarga = Number(selectedMenu.harga) * Number(jumlahPorsi);
-    const cleanCatatan = catatan.trim() || '-';
+    const hargaSatuan = Math.round(Number(selectedMenu.harga));
+    const totalHarga = hargaSatuan * porsiFinal;
 
     try {
       setSubmitStep('Mengunggah bukti transfer...');
@@ -319,9 +339,9 @@ export default function App() {
         namaSekolah: cleanSekolah,
         namaPj: cleanPj,
         namaPaket: selectedMenu.nama,
-        jumlahPorsi,
+        jumlahPorsi: porsiFinal,
         jadwalMakan,
-        hargaSatuan: selectedMenu.harga,
+        hargaSatuan,
         totalHarga,
         catatan: cleanCatatan,
       });
@@ -341,8 +361,8 @@ export default function App() {
         namaPj: cleanPj,
         noWa: cleanWa,
         namaPaket: selectedMenu.nama,
-        hargaSatuan: Number(selectedMenu.harga),
-        jumlahPorsi: Number(jumlahPorsi),
+        hargaSatuan,
+        jumlahPorsi: porsiFinal,
         tanggalMakan,
         sesiMakan,
         jamMakan,
@@ -492,6 +512,7 @@ export default function App() {
                   id="namaSekolah"
                   className="field-input"
                   placeholder="Contoh: SMA Negeri 1 Sukabumi"
+                  maxLength={150}
                   value={namaSekolah}
                   onChange={(e) => setNamaSekolah(e.target.value)}
                   required
@@ -508,6 +529,7 @@ export default function App() {
                     id="namaPj"
                     className="field-input"
                     placeholder="Nama lengkap official"
+                    maxLength={120}
                     value={namaPj}
                     onChange={(e) => setNamaPj(e.target.value)}
                     required
@@ -523,6 +545,7 @@ export default function App() {
                     id="noWa"
                     className="field-input"
                     placeholder="Contoh: 081234567890"
+                    maxLength={20}
                     value={noWa}
                     onChange={(e) => setNoWa(e.target.value)}
                     required
@@ -596,7 +619,10 @@ export default function App() {
                 <div className="inline-flex items-center border-1.5 border-slate-300 rounded-xl bg-white overflow-hidden w-full sm:w-auto">
                   <button
                     type="button"
-                    onClick={() => setJumlahPorsi((prev) => Math.max(1, prev - 1))}
+                    onClick={() => {
+                      const next = Math.max(1, (jumlahPorsi || 1) - 1);
+                      setPorsiInput(String(next));
+                    }}
                     className="w-12 h-11 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 border-r border-slate-200 transition cursor-pointer"
                     aria-label="Kurangi jumlah porsi"
                   >
@@ -607,17 +633,32 @@ export default function App() {
                     id="jumlahPorsi"
                     className="w-full sm:w-28 h-11 text-center text-base font-extrabold text-slate-900 bg-white outline-none"
                     min={1}
-                    value={jumlahPorsi}
-                    onChange={(e) => setJumlahPorsi(Math.max(1, Number(e.target.value) || 1))}
-                    onInput={(e) =>
-                      setJumlahPorsi(Math.max(1, Number((e.target as HTMLInputElement).value) || 1))
-                    }
+                    max={10000}
+                    inputMode="numeric"
+                    value={porsiInput}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/[^0-9]/g, '');
+                      if (!digits) {
+                        setPorsiInput('');
+                        return;
+                      }
+                      const clamped = Math.min(10000, parseInt(digits, 10));
+                      setPorsiInput(String(clamped));
+                    }}
+                    onBlur={() => {
+                      if (!porsiInput.trim() || jumlahPorsi < 1) {
+                        setPorsiInput('1');
+                      }
+                    }}
                     onKeyDown={cegahEnterSubmit}
                     required
                   />
                   <button
                     type="button"
-                    onClick={() => setJumlahPorsi((prev) => prev + 1)}
+                    onClick={() => {
+                      const next = Math.min(10000, (jumlahPorsi || 0) + 1);
+                      setPorsiInput(String(next));
+                    }}
                     className="w-12 h-11 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 border-l border-slate-200 transition cursor-pointer"
                     aria-label="Tambah jumlah porsi"
                   >
@@ -826,6 +867,7 @@ export default function App() {
                 <textarea
                   id="catatan"
                   rows={2}
+                  maxLength={500}
                   className="field-textarea"
                   placeholder="Contoh: Tanpa sambal / diantar ke ruang transit"
                   value={catatan}
@@ -939,6 +981,8 @@ export default function App() {
                 {/* Error Feedback */}
                 {formError && (
                   <div
+                    id="formErrorAlert"
+                    ref={errorAlertRef}
                     role="alert"
                     className="rounded-xl bg-red-50 border border-red-200 px-3.5 py-2.5 text-xs font-semibold text-red-700"
                   >

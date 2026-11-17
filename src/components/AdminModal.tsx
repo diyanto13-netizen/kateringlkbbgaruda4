@@ -80,9 +80,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [ordersError, setOrdersError] = useState('');
   const [previewProofOrder, setPreviewProofOrder] = useState<OrderRecord | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
+  const [statusType, setStatusType] = useState<'info' | 'error'>('info');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'Pending' | 'Lunas'>('ALL');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'Sabtu' | 'Minggu'>('ALL');
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null);
+  const [confirmDeleteMenuId, setConfirmDeleteMenuId] = useState<string | null>(null);
 
   // Menu form state
   const [menuId, setMenuId] = useState('');
@@ -107,6 +111,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [adminPinSetting, setAdminPinSetting] = useState(cloudAdminPin);
   const [configSaving, setConfigSaving] = useState(false);
 
+  const showStatus = (msg: string, type: 'info' | 'error' = 'info') => {
+    setStatusMessage(msg);
+    setStatusType(type);
+  };
+
+  const reportFirestoreFailure = (
+    err: unknown,
+    op: OperationType,
+    path: string,
+    fallbackLabel: string
+  ) => {
+    try {
+      handleFirestoreError(err, op, path);
+    } catch {
+      const msg = err instanceof Error ? err.message : String(err);
+      showStatus(`${fallbackLabel}: ${msg}`, 'error');
+    }
+  };
+
   useEffect(() => {
     setFonnteTokenInput(cloudFonnteToken);
   }, [cloudFonnteToken]);
@@ -120,6 +143,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!isOpen) {
       setPinError('');
       setStatusMessage('');
+      setConfirmDeleteOrderId(null);
+      setConfirmDeleteMenuId(null);
     }
   }, [isOpen]);
 
@@ -157,11 +182,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     return orders.filter((o) => {
       const statusBayar: StatusPembayaran =
         o.statusPembayaran === 'Lunas' ? 'Lunas' : 'Pending';
+      const tgl = o.tanggalMakan || '';
       if (statusFilter !== 'ALL' && statusBayar !== statusFilter) return false;
-      if (dateFilter === 'Sabtu' && !o.tanggalMakan.includes('Sabtu')) return false;
-      if (dateFilter === 'Minggu' && !o.tanggalMakan.includes('Minggu')) return false;
+      if (dateFilter === 'Sabtu' && !tgl.includes('Sabtu')) return false;
+      if (dateFilter === 'Minggu' && !tgl.includes('Minggu')) return false;
       if (q) {
-        const hay = `${o.orderId} ${o.namaSekolah} ${o.namaPj} ${o.noWa} ${o.namaPaket}`.toLowerCase();
+        const hay = `${o.orderId || ''} ${o.namaSekolah || ''} ${o.namaPj || ''} ${o.noWa || ''} ${o.namaPaket || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -206,9 +232,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       for (const item of DEFAULT_MENUS) {
         await setDoc(doc(db, 'menus', item.id), item);
       }
-      setStatusMessage('Paket menu contoh berhasil dimuat ke koleksi menus Firestore.');
+      showStatus('Paket menu contoh berhasil dimuat ke koleksi menus Firestore.');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'menus');
+      reportFirestoreFailure(err, OperationType.WRITE, 'menus', 'Gagal memuat menu contoh');
     } finally {
       setSeedingMenus(false);
     }
@@ -217,13 +243,38 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleSaveMenu = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const cleanId = menuId.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    const rawId = menuId.trim();
+    const cleanId = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
     const cleanNama = menuNama.trim();
-    const numHarga = Number(menuHarga);
-    const numUrutan = Number(menuUrutan || 1);
+    const cleanGambar = menuGambar.trim();
+    const numHarga = Math.round(Number(menuHarga));
+    const numUrutan = Math.round(Number(menuUrutan || 1));
 
-    if (!cleanId || !cleanNama || !Number.isFinite(numHarga) || numHarga <= 0) {
-      setStatusMessage('ID Paket, Nama Paket, dan Harga valid wajib diisi.');
+    if (!rawId || rawId !== cleanId) {
+      showStatus(
+        'ID Paket hanya boleh berisi huruf, angka, tanda hubung (-), atau garis bawah (_) tanpa spasi.',
+        'error'
+      );
+      return;
+    }
+    if (cleanId.length > 32) {
+      showStatus('ID Paket maksimal 32 karakter.', 'error');
+      return;
+    }
+    if (!cleanNama || cleanNama.length > 150) {
+      showStatus('Nama Paket wajib diisi (1–150 karakter).', 'error');
+      return;
+    }
+    if (!Number.isFinite(numHarga) || numHarga <= 0 || numHarga > 10000000) {
+      showStatus('Harga satuan harus antara Rp 1 sampai Rp 10.000.000.', 'error');
+      return;
+    }
+    if (cleanGambar.length > 1000) {
+      showStatus('URL Foto Menu maksimal 1000 karakter.', 'error');
+      return;
+    }
+    if (!Number.isFinite(numUrutan) || numUrutan < 0 || numUrutan > 10000) {
+      showStatus('Urutan tampil harus antara 0 sampai 10.000.', 'error');
       return;
     }
 
@@ -233,17 +284,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         id: cleanId,
         nama: cleanNama,
         harga: numHarga,
-        gambar: menuGambar.trim(),
-        urutan: Number.isFinite(numUrutan) && numUrutan >= 0 ? numUrutan : 1,
+        gambar: cleanGambar,
+        urutan: numUrutan,
       });
       setMenuId('');
       setMenuNama('');
       setMenuHarga('');
       setMenuGambar('');
       setMenuUrutan(String(menus.length + 2));
-      setStatusMessage(`Paket menu "${cleanNama}" (${cleanId}) berhasil disimpan.`);
+      showStatus(`Paket menu "${cleanNama}" (${cleanId}) berhasil disimpan ke Firestore.`);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `menus/${cleanId}`);
+      reportFirestoreFailure(err, OperationType.WRITE, `menus/${cleanId}`, 'Gagal menyimpan menu');
     } finally {
       setMenuSaving(false);
     }
@@ -260,9 +311,24 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleDeleteMenu = async (id: string) => {
     try {
       await deleteDoc(doc(db, 'menus', id));
-      setStatusMessage(`Paket menu ${id} berhasil dihapus.`);
+      setConfirmDeleteMenuId(null);
+      showStatus(`Paket menu ${id} berhasil dihapus dari Firestore.`);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `menus/${id}`);
+      reportFirestoreFailure(err, OperationType.DELETE, `menus/${id}`, 'Gagal menghapus menu');
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (filteredOrders.length === 0) return;
+    setExportingExcel(true);
+    try {
+      await exportOrdersToExcel(filteredOrders);
+      showStatus(`File Excel (${filteredOrders.length} pesanan) siap cetak berhasil diunduh.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showStatus(`Gagal membuat file Excel: ${msg}`, 'error');
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -284,13 +350,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       try {
         await updateDoc(doc(db, 'orders', order.orderId), {
           waTerkirim: true,
+          statusPembayaran: order.statusPembayaran === 'Lunas' ? 'Lunas' : 'Pending',
         });
+        showStatus(`Kwitansi WA untuk ${order.orderId} berhasil dikirim ulang.`);
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `orders/${order.orderId}`);
+        reportFirestoreFailure(
+          err,
+          OperationType.UPDATE,
+          `orders/${order.orderId}`,
+          'WA terkirim, namun gagal memperbarui status di database'
+        );
       }
-      setStatusMessage(`Kwitansi WA untuk ${order.orderId} berhasil dikirim ulang.`);
     } else {
-      setStatusMessage(`Gagal mengirim WA otomatis ke ${order.noWa}. Periksa token Fonnte.`);
+      showStatus(`Gagal mengirim WA otomatis ke ${order.noWa}. Periksa token Fonnte.`, 'error');
     }
   };
 
@@ -303,20 +375,31 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await updateDoc(doc(db, 'orders', order.orderId), {
         statusPembayaran: nextStatus,
       });
-      setStatusMessage(
+      showStatus(
         `Status pembayaran ${order.orderId} (${order.namaSekolah}) diubah menjadi ${nextStatus}.`
       );
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `orders/${order.orderId}`);
+      reportFirestoreFailure(
+        err,
+        OperationType.UPDATE,
+        `orders/${order.orderId}`,
+        'Gagal memperbarui status pembayaran'
+      );
     }
   };
 
   const handleDeleteOrder = async (orderId: string) => {
     try {
       await deleteDoc(doc(db, 'orders', orderId));
-      setStatusMessage(`Pesanan ${orderId} berhasil dihapus.`);
+      setConfirmDeleteOrderId(null);
+      showStatus(`Pesanan ${orderId} berhasil dihapus dari Firestore.`);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `orders/${orderId}`);
+      reportFirestoreFailure(
+        err,
+        OperationType.DELETE,
+        `orders/${orderId}`,
+        'Gagal menghapus pesanan'
+      );
     }
   };
 
@@ -326,9 +409,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     const cleanToken = fonnteTokenInput.trim() || DEFAULT_FONNTE_TOKEN;
 
     if (!/^[a-zA-Z0-9]{4,32}$/.test(cleanPin)) {
-      setStatusMessage(
-        'PIN Akses Panel Panitia harus terdiri dari 4 sampai 32 karakter huruf/angka tanpa spasi.'
+      showStatus(
+        'PIN Akses Panel Panitia harus terdiri dari 4 sampai 32 karakter huruf/angka tanpa spasi.',
+        'error'
       );
+      return;
+    }
+
+    if (cleanToken.length < 1 || cleanToken.length > 200) {
+      showStatus('Token Fonnte harus 1 sampai 200 karakter.', 'error');
       return;
     }
 
@@ -336,12 +425,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     try {
       parsedConfig = JSON.parse(configJsonInput) as Record<string, unknown>;
       if (!parsedConfig.apiKey || !parsedConfig.projectId || !parsedConfig.appId) {
-        setStatusMessage('JSON firebaseConfig harus memiliki apiKey, projectId, dan appId.');
+        showStatus('JSON firebaseConfig harus memiliki apiKey, projectId, dan appId.', 'error');
         return;
       }
     } catch {
-      setStatusMessage(
-        'Format JSON firebaseConfig tidak valid. Periksa tanda kutip dan kurung kurawal.'
+      showStatus(
+        'Format JSON firebaseConfig tidak valid. Periksa tanda kutip dan kurung kurawal.',
+        'error'
       );
       return;
     }
@@ -358,17 +448,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       const nextSerialized = JSON.stringify(parsedConfig);
       if (currentSerialized !== nextSerialized) {
         localStorage.setItem(LS_FIREBASE_CONFIG_KEY, JSON.stringify(parsedConfig, null, 2));
-        setStatusMessage(
+        showStatus(
           'PIN & Token tersimpan di Cloud. Konfigurasi Firebase baru diterapkan, memuat ulang...'
         );
         setTimeout(() => window.location.reload(), 900);
       } else {
-        setStatusMessage(
+        showStatus(
           'PIN Akses Panel Panitia & Token Fonnte berhasil disimpan ke Cloud Firestore!'
         );
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'settings/panel');
+      reportFirestoreFailure(
+        err,
+        OperationType.WRITE,
+        'settings/panel',
+        'Gagal menyimpan konfigurasi ke Cloud'
+      );
     } finally {
       setConfigSaving(false);
     }
@@ -389,13 +484,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setAdminPinSetting(DEFAULT_ADMIN_PIN);
 
       if (hadCustom) {
-        setStatusMessage('Konfigurasi direset ke default aplikasi. Halaman akan dimuat ulang...');
+        showStatus('Konfigurasi direset ke default aplikasi. Halaman akan dimuat ulang...');
         setTimeout(() => window.location.reload(), 900);
       } else {
-        setStatusMessage('PIN Panitia (1234) & Token Fonnte berhasil direset di Cloud Firestore.');
+        showStatus('PIN Panitia & Token Fonnte berhasil direset ke pengaturan awal di Cloud Firestore.');
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'settings/panel');
+      reportFirestoreFailure(
+        err,
+        OperationType.WRITE,
+        'settings/panel',
+        'Gagal mereset konfigurasi di Cloud'
+      );
     } finally {
       setConfigSaving(false);
     }
@@ -509,12 +609,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
             {/* Notification Banner */}
             {statusMessage && (
-              <div className="mx-5 mt-3 px-3.5 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs font-semibold flex items-center justify-between">
+              <div
+                className={`mx-5 mt-3 px-3.5 py-2 rounded-lg border text-xs font-semibold flex items-center justify-between gap-2 ${
+                  statusType === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-800'
+                    : 'bg-blue-50 border-blue-200 text-blue-800'
+                }`}
+              >
                 <span>{statusMessage}</span>
                 <button
                   type="button"
                   onClick={() => setStatusMessage('')}
-                  className="text-blue-600 hover:text-blue-900 font-bold cursor-pointer"
+                  className={`${
+                    statusType === 'error'
+                      ? 'text-red-600 hover:text-red-900'
+                      : 'text-blue-600 hover:text-blue-900'
+                  } font-bold cursor-pointer`}
                 >
                   ×
                 </button>
@@ -612,12 +722,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => void exportOrdersToExcel(filteredOrders)}
-                      disabled={filteredOrders.length === 0}
+                      onClick={() => void handleExportExcel()}
+                      disabled={filteredOrders.length === 0 || exportingExcel}
                       className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 shrink-0"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Export Excel (.XLSX) Siap Cetak
+                      {exportingExcel ? 'Menyiapkan Excel...' : 'Export Excel (.XLSX) Siap Cetak'}
                     </button>
                   </div>
 
@@ -747,20 +857,39 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleResendWa(order)}
+                                      onClick={() => void handleResendWa(order)}
                                       className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold cursor-pointer"
                                     >
                                       <Send className="w-3.5 h-3.5" />
                                       Kirim WA
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteOrder(order.orderId)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 font-semibold cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                      Hapus
-                                    </button>
+                                    {confirmDeleteOrderId === order.orderId ? (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleDeleteOrder(order.orderId)}
+                                          className="flex-1 px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer"
+                                        >
+                                          Ya, Hapus
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteOrderId(null)}
+                                          className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold cursor-pointer"
+                                        >
+                                          Batal
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteOrderId(order.orderId)}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 font-semibold cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        Hapus
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -812,6 +941,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           value={menuId}
                           onChange={(e) => setMenuId(e.target.value)}
                           placeholder="Contoh: PKT-05"
+                          maxLength={32}
                           className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
                           required
                         />
@@ -825,6 +955,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           value={menuNama}
                           onChange={(e) => setMenuNama(e.target.value)}
                           placeholder="Contoh: Paket Nasi Kotak Ikan Bakar"
+                          maxLength={150}
                           className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
                           required
                         />
@@ -835,7 +966,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </label>
                         <input
                           type="number"
-                          min="1000"
+                          min={1}
+                          max={10000000}
                           value={menuHarga}
                           onChange={(e) => setMenuHarga(e.target.value)}
                           placeholder="25000"
@@ -849,7 +981,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </label>
                         <input
                           type="number"
-                          min="0"
+                          min={0}
+                          max={10000}
                           value={menuUrutan}
                           onChange={(e) => setMenuUrutan(e.target.value)}
                           placeholder="1"
@@ -866,6 +999,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         type="text"
                         value={menuGambar}
                         onChange={(e) => setMenuGambar(e.target.value)}
+                        maxLength={1000}
                         placeholder="https://drive.google.com/file/d/... atau https://..."
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
                       />
@@ -915,15 +1049,33 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               >
                                 Edit
                               </button>
-                              {hasFirestoreMenus && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteMenu(m.id)}
-                                  className="text-[11px] font-semibold text-red-600 hover:underline cursor-pointer"
-                                >
-                                  Hapus
-                                </button>
-                              )}
+                              {hasFirestoreMenus &&
+                                (confirmDeleteMenuId === m.id ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleDeleteMenu(m.id)}
+                                      className="text-[11px] font-bold text-red-700 hover:underline cursor-pointer"
+                                    >
+                                      Konfirmasi Hapus
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteMenuId(null)}
+                                      className="text-[11px] font-semibold text-slate-500 hover:underline cursor-pointer"
+                                    >
+                                      Batal
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteMenuId(m.id)}
+                                    className="text-[11px] font-semibold text-red-600 hover:underline cursor-pointer"
+                                  >
+                                    Hapus
+                                  </button>
+                                ))}
                             </div>
                           </div>
                         </div>
@@ -967,6 +1119,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         value={adminPinSetting}
                         onChange={(e) => setAdminPinSetting(e.target.value)}
                         placeholder="Minimal 4 karakter (huruf/angka)"
+                        maxLength={32}
                         className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
                         required
                       />
@@ -979,6 +1132,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         type="text"
                         value={fonnteTokenInput}
                         onChange={(e) => setFonnteTokenInput(e.target.value)}
+                        maxLength={200}
                         className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
                         required
                       />

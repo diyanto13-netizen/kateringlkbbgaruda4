@@ -52,7 +52,7 @@
         },
         "orderId": {
           "type": "string",
-          "description": "Nomor pesanan unik format ORD-yyyyMMdd-HHmmss.",
+          "description": "Nomor pesanan unik format ORD-yyyyMMdd-HHmmss-XXX.",
           "minLength": 5,
           "maxLength": 40,
           "pattern": "^[a-zA-Z0-9_\\-]+$"

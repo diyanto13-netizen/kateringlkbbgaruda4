@@ -1,11 +1,9 @@
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../firebase';
-import type { MenuItem, OrderRecord } from '../types/catering';
+import type { MenuItem } from '../types/catering';
 
 export const DEFAULT_FONNTE_TOKEN = 'dcEHH47Mo9Zq5ZeFjjnu';
 export const DEFAULT_ADMIN_PIN = '1234';
-export const LS_FONNTE_TOKEN_KEY = 'garuda4_fonnte_token';
-export const LS_ADMIN_PIN_KEY = 'garuda4_admin_pin';
 
 export const FALLBACK_IMAGE_SVG =
   "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='240' viewBox='0 0 400 240'%3E%3Crect width='400' height='240' fill='%23fff7ed'/%3E%3Crect x='140' y='60' width='120' height='80' rx='12' fill='%23fed7aa'/%3E%3Ccircle cx='200' cy='100' r='22' fill='%23ea580c' opacity='0.85'/%3E%3Ctext x='200' y='175' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='14' font-weight='700' fill='%239a3412'%3EMenu Katering Garuda IV%3C/text%3E%3C/svg%3E";
@@ -40,26 +38,6 @@ export const DEFAULT_MENUS: MenuItem[] = [
     urutan: 4,
   },
 ];
-
-export function getActiveFonnteToken(): string {
-  try {
-    const saved = localStorage.getItem(LS_FONNTE_TOKEN_KEY);
-    if (saved && saved.trim()) return saved.trim();
-  } catch {
-    // ignore storage access issues
-  }
-  return DEFAULT_FONNTE_TOKEN;
-}
-
-export function getActiveAdminPin(): string {
-  try {
-    const saved = localStorage.getItem(LS_ADMIN_PIN_KEY);
-    if (saved && saved.trim()) return saved.trim();
-  } catch {
-    // ignore storage access issues
-  }
-  return DEFAULT_ADMIN_PIN;
-}
 
 export function bersihkanUrlGambar(rawUrl: string | undefined | null): string {
   if (!rawUrl || !rawUrl.trim()) {
@@ -126,13 +104,18 @@ export function generateOrderId(date: Date = new Date()): string {
   }).formatToParts(date);
 
   const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '00';
-  return `ORD-${getPart('year')}${getPart('month')}${getPart('day')}-${getPart('hour')}${getPart('minute')}${getPart('second')}`;
+  const suffixChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let suffix = '';
+  for (let i = 0; i < 3; i++) {
+    suffix += suffixChars.charAt(Math.floor(Math.random() * suffixChars.length));
+  }
+  return `ORD-${getPart('year')}${getPart('month')}${getPart('day')}-${getPart('hour')}${getPart('minute')}${getPart('second')}-${suffix}`;
 }
 
 export function compressImageToDataUrl(
   file: File,
-  maxWidth = 800,
-  initialQuality = 0.7
+  maxDimension = 900,
+  initialQuality = 0.72
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -145,30 +128,55 @@ export function compressImageToDataUrl(
         let width = img.width;
         let height = img.height;
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
+        if (width > maxDimension || height > maxDimension) {
+          if (width >= height) {
+            height = Math.max(1, Math.round((height * maxDimension) / width));
+            width = maxDimension;
+          } else {
+            width = Math.max(1, Math.round((width * maxDimension) / height));
+            height = maxDimension;
+          }
         }
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Canvas context tidak tersedia.'));
-          return;
-        }
+        const renderAtSize = (w: number, h: number, quality: number): string => {
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            throw new Error('Canvas context tidak tersedia.');
+          }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          return canvas.toDataURL('image/jpeg', quality);
+        };
 
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
+        try {
+          let quality = initialQuality;
+          let dataUrl = renderAtSize(width, height, quality);
 
-        let quality = initialQuality;
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-        while (dataUrl.length > 650000 && quality > 0.25) {
-          quality -= 0.1;
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
+          while (dataUrl.length > 650000 && quality > 0.25) {
+            quality = Math.max(0.25, quality - 0.12);
+            dataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+
+          let scaleAttempts = 0;
+          while (dataUrl.length > 650000 && scaleAttempts < 4) {
+            width = Math.max(200, Math.round(width * 0.72));
+            height = Math.max(200, Math.round(height * 0.72));
+            dataUrl = renderAtSize(width, height, 0.55);
+            scaleAttempts += 1;
+          }
+
+          if (dataUrl.length > 740000) {
+            reject(new Error('Ukuran gambar terlalu besar setelah dikompresi. Gunakan foto yang lebih kecil.'));
+            return;
+          }
+
+          resolve(dataUrl);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error('Gagal memproses gambar.'));
         }
-        resolve(dataUrl);
       };
       img.src = String(reader.result);
     };
@@ -241,7 +249,7 @@ export async function kirimPesanWhatsAppOtomatis(
   isiPesan: string,
   tokenOverride?: string
 ): Promise<boolean> {
-  const tokenBersih = (tokenOverride || getActiveFonnteToken()).trim();
+  const tokenBersih = (tokenOverride || DEFAULT_FONNTE_TOKEN).trim();
   const nomorStandar = standarisasiNomorWA(nomorTujuan);
 
   if (!tokenBersih || !nomorStandar) {
@@ -278,66 +286,4 @@ export async function kirimPesanWhatsAppOtomatis(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export function exportOrdersToCsv(orders: OrderRecord[]): void {
-  const headers = [
-    'No. Pesanan',
-    'Waktu Pesan',
-    'Sekolah / Kontingen',
-    'Nama Official / PJ',
-    'No. WhatsApp',
-    'Paket Menu',
-    'Harga Satuan',
-    'Jumlah Porsi',
-    'Total Bayar',
-    'Tanggal Makan',
-    'Sesi Makan',
-    'Jam Makan',
-    'Jadwal Lengkap',
-    'Catatan',
-    'Status WA',
-    'Link/Data Bukti Bayar',
-  ];
-
-  const escapeCsv = (value: unknown): string => {
-    const str = String(value ?? '');
-    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  };
-
-  const rows = orders.map((o) => [
-    o.orderId,
-    o.waktu,
-    o.namaSekolah,
-    o.namaPj,
-    o.noWa,
-    o.namaPaket,
-    o.hargaSatuan,
-    o.jumlahPorsi,
-    o.totalHarga,
-    o.tanggalMakan,
-    o.sesiMakan,
-    o.jamMakan,
-    o.jadwalMakan,
-    o.catatan,
-    o.waTerkirim ? 'Terkirim' : 'Belum/Manual',
-    o.fileUrl.startsWith('data:') ? '[Base64 Image Tersimpan di Firestore]' : o.fileUrl,
-  ]);
-
-  const csvContent =
-    '\uFEFF' +
-    [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\r\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `Rekap_Katering_Garuda_IV_${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }

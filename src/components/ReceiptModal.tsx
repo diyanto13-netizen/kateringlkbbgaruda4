@@ -147,6 +147,18 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ order, onClose }) =>
               <span className="text-slate-500">Catatan</span>
               <span className="font-medium text-slate-700 text-right">{order.catatan || '-'}</span>
             </div>
+            <div className="flex justify-between items-center gap-3">
+              <span className="text-slate-500">Status Pembayaran</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  order.statusPembayaran === 'Lunas'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {order.statusPembayaran === 'Lunas' ? 'Lunas' : 'Pending (Verifikasi Panitia)'}
+              </span>
+            </div>
 
             <div className="pt-2.5 mt-1 border-t border-dashed border-slate-300 flex justify-between items-center">
               <span className="font-extrabold text-slate-900 text-sm">TOTAL BAYAR</span>
