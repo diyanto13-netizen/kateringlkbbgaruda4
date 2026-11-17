@@ -1,0 +1,8 @@
+{
+  "name": "Pemesanan Katering - Garuda IV SMKS PGRI 1 Sukabumi",
+  "description": "Aplikasi pemesanan katering kontingen Lomba Paskibra Garuda IV SMKS PGRI 1 Sukabumi berbasis Cloud Firestore & Firebase Storage dengan kwitansi WhatsApp otomatis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

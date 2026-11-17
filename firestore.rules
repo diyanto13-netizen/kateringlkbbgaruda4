@@ -1,0 +1,132 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'diyanto13@gmail.com'
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidMenu(data) {
+      return data.keys().hasAll(['id', 'nama', 'harga', 'gambar', 'urutan'])
+        && data.keys().hasOnly(['id', 'nama', 'harga', 'gambar', 'urutan'])
+        && data.id is string && isValidId(data.id) && data.id.size() <= 32
+        && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150
+        && data.harga is number && data.harga > 0 && data.harga <= 10000000
+        && data.gambar is string && data.gambar.size() <= 1000
+        && data.urutan is number && data.urutan >= 0 && data.urutan <= 10000;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'waktu', 'createdAt', 'orderId', 'namaSekolah', 'namaPj', 'noWa',
+          'namaPaket', 'hargaSatuan', 'jumlahPorsi', 'tanggalMakan',
+          'sesiMakan', 'jamMakan', 'jadwalMakan', 'totalHarga',
+          'fileUrl', 'catatan', 'waTerkirim'
+        ])
+        && data.keys().hasOnly([
+          'waktu', 'createdAt', 'orderId', 'namaSekolah', 'namaPj', 'noWa',
+          'namaPaket', 'hargaSatuan', 'jumlahPorsi', 'tanggalMakan',
+          'sesiMakan', 'jamMakan', 'jadwalMakan', 'totalHarga',
+          'fileUrl', 'catatan', 'waTerkirim'
+        ])
+        && data.waktu is string && data.waktu.size() >= 10 && data.waktu.size() <= 32
+        && data.createdAt is timestamp
+        && data.orderId is string && isValidId(data.orderId) && data.orderId.size() >= 5 && data.orderId.size() <= 40
+        && data.namaSekolah is string && data.namaSekolah.size() >= 2 && data.namaSekolah.size() <= 150
+        && data.namaPj is string && data.namaPj.size() >= 2 && data.namaPj.size() <= 120
+        && data.noWa is string && data.noWa.size() >= 9 && data.noWa.size() <= 20 && data.noWa.matches('^62[0-9]{7,18}$')
+        && data.namaPaket is string && data.namaPaket.size() >= 1 && data.namaPaket.size() <= 150
+        && data.hargaSatuan is number && data.hargaSatuan > 0 && data.hargaSatuan <= 10000000
+        && data.jumlahPorsi is number && data.jumlahPorsi >= 1 && data.jumlahPorsi <= 10000
+        && data.tanggalMakan is string && data.tanggalMakan in ['Sabtu, 21 Nop 2026', 'Minggu, 22 Nop 2026']
+        && data.sesiMakan is string && data.sesiMakan in ['Makan Pagi', 'Makan Siang', 'Makan Sore/Malam']
+        && data.jamMakan is string && data.jamMakan.size() >= 4 && data.jamMakan.size() <= 10
+        && data.jadwalMakan is string && data.jadwalMakan.size() >= 10 && data.jadwalMakan.size() <= 150
+        && data.totalHarga is number && data.totalHarga == data.hargaSatuan * data.jumlahPorsi
+        && data.fileUrl is string && data.fileUrl.size() >= 5 && data.fileUrl.size() <= 750000
+        && data.catatan is string && data.catatan.size() <= 500
+        && data.waTerkirim is bool;
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'role'])
+        && data.keys().hasOnly(['email', 'role'])
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 150
+        && data.role is string && data.role == 'admin';
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+    match /menus/{menuId} {
+      allow get: if isValidId(menuId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(menuId)
+        && isValidMenu(incoming())
+        && incoming().id == menuId;
+      allow update: if isAdmin()
+        && isValidId(menuId)
+        && isValidMenu(incoming())
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'harga', 'gambar', 'urutan']);
+      allow delete: if isAdmin() && isValidId(menuId);
+    }
+
+    match /orders/{orderId} {
+      allow get: if isAdmin() && isValidId(orderId);
+      allow list: if isAdmin();
+      allow create: if isValidId(orderId)
+        && isValidOrder(incoming())
+        && incoming().orderId == orderId
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(orderId)
+        && isValidOrder(incoming())
+        && incoming().orderId == existing().orderId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['waTerkirim', 'catatan']);
+      allow delete: if isAdmin() && isValidId(orderId);
+    }
+
+    match /admins/{userId} {
+      allow get: if isAdmin() && isValidId(userId);
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(userId) && isValidAdminUser(incoming());
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+  }
+}

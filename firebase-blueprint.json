@@ -1,0 +1,187 @@
+{
+  "entities": {
+    "Menu": {
+      "title": "Menu",
+      "description": "Paket menu katering yang tersedia untuk Lomba Paskibra Garuda IV SMKS PGRI 1 Sukabumi.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Kode unik paket menu (contoh: PKT-01).",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "nama": {
+          "type": "string",
+          "description": "Nama lengkap paket katering.",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "harga": {
+          "type": "number",
+          "description": "Harga satuan paket dalam Rupiah."
+        },
+        "gambar": {
+          "type": "string",
+          "description": "URL gambar paket menu (Google Drive thumbnail atau URL gambar publik).",
+          "maxLength": 1000
+        },
+        "urutan": {
+          "type": "number",
+          "description": "Urutan tampil paket pada galeri."
+        }
+      },
+      "required": ["id", "nama", "harga", "gambar", "urutan"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Data pesanan katering yang dikirim oleh kontingen/official beserta bukti transfer.",
+      "type": "object",
+      "properties": {
+        "waktu": {
+          "type": "string",
+          "description": "Timestamp waktu pemesanan format dd/MM/yyyy HH:mm:ss WIB.",
+          "minLength": 10,
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp Firestore saat pesanan dibuat."
+        },
+        "orderId": {
+          "type": "string",
+          "description": "Nomor pesanan unik format ORD-yyyyMMdd-HHmmss.",
+          "minLength": 5,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "namaSekolah": {
+          "type": "string",
+          "description": "Nama sekolah atau kontingen pemesan.",
+          "minLength": 2,
+          "maxLength": 150
+        },
+        "namaPj": {
+          "type": "string",
+          "description": "Nama lengkap official / penanggung jawab kontingen.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "noWa": {
+          "type": "string",
+          "description": "Nomor WhatsApp terstandarisasi awalan 62.",
+          "minLength": 9,
+          "maxLength": 20,
+          "pattern": "^62[0-9]{7,18}$"
+        },
+        "namaPaket": {
+          "type": "string",
+          "description": "Nama paket menu yang dipilih.",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "hargaSatuan": {
+          "type": "number",
+          "description": "Harga satuan paket dalam Rupiah."
+        },
+        "jumlahPorsi": {
+          "type": "number",
+          "description": "Jumlah porsi yang dipesan."
+        },
+        "tanggalMakan": {
+          "type": "string",
+          "description": "Hari dan tanggal pengantaran.",
+          "enum": ["Sabtu, 21 Nop 2026", "Minggu, 22 Nop 2026"]
+        },
+        "sesiMakan": {
+          "type": "string",
+          "description": "Sesi waktu makan.",
+          "enum": ["Makan Pagi", "Makan Siang", "Makan Sore/Malam"]
+        },
+        "jamMakan": {
+          "type": "string",
+          "description": "Jam pengantaran format HH:mm.",
+          "minLength": 4,
+          "maxLength": 10
+        },
+        "jadwalMakan": {
+          "type": "string",
+          "description": "Ringkasan jadwal pengantaran lengkap.",
+          "minLength": 10,
+          "maxLength": 150
+        },
+        "totalHarga": {
+          "type": "number",
+          "description": "Total biaya pesanan (hargaSatuan * jumlahPorsi)."
+        },
+        "fileUrl": {
+          "type": "string",
+          "description": "URL Firebase Storage atau Data URL Base64 terkompresi bukti transfer.",
+          "minLength": 5,
+          "maxLength": 750000
+        },
+        "catatan": {
+          "type": "string",
+          "description": "Catatan tambahan pesanan.",
+          "maxLength": 500
+        },
+        "waTerkirim": {
+          "type": "boolean",
+          "description": "Status pengiriman kwitansi melalui WhatsApp Gateway Fonnte."
+        }
+      },
+      "required": [
+        "waktu",
+        "createdAt",
+        "orderId",
+        "namaSekolah",
+        "namaPj",
+        "noWa",
+        "namaPaket",
+        "hargaSatuan",
+        "jumlahPorsi",
+        "tanggalMakan",
+        "sesiMakan",
+        "jamMakan",
+        "jadwalMakan",
+        "totalHarga",
+        "fileUrl",
+        "catatan",
+        "waTerkirim"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Daftar UID panitia yang memiliki hak akses admin.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/menus/{menuId}": {
+      "schema": { "$ref": "#/entities/Menu" },
+      "description": "Koleksi katalog paket menu katering Lomba Paskibra Garuda IV."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Koleksi data pesanan katering masuk dari kontingen peserta."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Koleksi daftar UID admin panitia tambahan."
+    }
+  }
+}
