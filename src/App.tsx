@@ -8,9 +8,8 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
-import { onAuthStateChanged, type User } from 'firebase/auth';
 import { Check, Loader2, Upload } from 'lucide-react';
-import { auth, db, handleFirestoreError, OperationType } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import type {
   MenuItem,
   OrderRecord,
@@ -35,9 +34,7 @@ export default function App() {
   // Catalog state
   const [firestoreMenus, setFirestoreMenus] = useState<MenuItem[]>([]);
   const [hasFirestoreMenus, setHasFirestoreMenus] = useState(false);
-
-  // Auth state (hanya digunakan untuk AdminModal)
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const autoSeedAttemptedRef = useRef(false);
 
   // Form fields state
   const [namaSekolah, setNamaSekolah] = useState('');
@@ -62,15 +59,7 @@ export default function App() {
   const [completedOrder, setCompletedOrder] = useState<OrderRecord | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
 
-  // Track auth state
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-    });
-    return () => unsub();
-  }, []);
-
-  // Load menus real-time from Firestore, fallback to DEFAULT_MENUS when empty
+  // Load menus real-time from Firestore, Auto-Seed if empty, fallback to DEFAULT_MENUS
   useEffect(() => {
     const q = query(collection(db, 'menus'), orderBy('urutan', 'asc'));
     const unsub = onSnapshot(
@@ -86,6 +75,14 @@ export default function App() {
         } else {
           setFirestoreMenus([]);
           setHasFirestoreMenus(false);
+          if (!autoSeedAttemptedRef.current) {
+            autoSeedAttemptedRef.current = true;
+            Promise.all(
+              DEFAULT_MENUS.map((item) => setDoc(doc(db, 'menus', item.id), item))
+            ).catch((seedErr) => {
+              console.warn('Auto-Seeder menus dilewati:', seedErr);
+            });
+          }
         }
       },
       (error) => {
@@ -676,7 +673,6 @@ export default function App() {
         onClose={() => setAdminOpen(false)}
         menus={displayedMenus}
         hasFirestoreMenus={hasFirestoreMenus}
-        currentUser={currentUser}
       />
     </div>
   );

@@ -21,21 +21,6 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isAdmin() {
-      return isVerifiedUser() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'diyanto13@gmail.com'
-      );
-    }
-
     // ===============================================================
     // Domain Validators
     // ===============================================================
@@ -81,52 +66,35 @@ service cloud.firestore {
         && data.waTerkirim is bool;
     }
 
-    function isValidAdminUser(data) {
-      return data.keys().hasAll(['email', 'role'])
-        && data.keys().hasOnly(['email', 'role'])
-        && data.email is string && data.email.size() >= 5 && data.email.size() <= 150
-        && data.role is string && data.role == 'admin';
-    }
-
     // ===============================================================
     // Collection Rules
     // ===============================================================
     match /menus/{menuId} {
       allow get: if isValidId(menuId);
       allow list: if true;
-      allow create: if isAdmin()
-        && isValidId(menuId)
+      allow create: if isValidId(menuId)
         && isValidMenu(incoming())
         && incoming().id == menuId;
-      allow update: if isAdmin()
-        && isValidId(menuId)
+      allow update: if isValidId(menuId)
         && isValidMenu(incoming())
         && incoming().id == existing().id
         && incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'harga', 'gambar', 'urutan']);
-      allow delete: if isAdmin() && isValidId(menuId);
+      allow delete: if isValidId(menuId);
     }
 
     match /orders/{orderId} {
-      allow get: if isAdmin() && isValidId(orderId);
-      allow list: if isAdmin();
+      allow get: if isValidId(orderId);
+      allow list: if true;
       allow create: if isValidId(orderId)
         && isValidOrder(incoming())
         && incoming().orderId == orderId
         && incoming().createdAt == request.time;
-      allow update: if isAdmin()
-        && isValidId(orderId)
+      allow update: if isValidId(orderId)
         && isValidOrder(incoming())
         && incoming().orderId == existing().orderId
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['waTerkirim', 'catatan']);
-      allow delete: if isAdmin() && isValidId(orderId);
-    }
-
-    match /admins/{userId} {
-      allow get: if isAdmin() && isValidId(userId);
-      allow list: if isAdmin();
-      allow create, update: if isAdmin() && isValidId(userId) && isValidAdminUser(incoming());
-      allow delete: if isAdmin() && isValidId(userId);
+      allow delete: if isValidId(orderId);
     }
   }
 }

@@ -8,14 +8,12 @@ import {
   query,
   setDoc,
 } from 'firebase/firestore';
-import { signInWithPopup, signOut, type User } from 'firebase/auth';
 import {
+  ClipboardList,
   Download,
   ExternalLink,
   Image as ImageIcon,
   KeyRound,
-  LogIn,
-  LogOut,
   Plus,
   RefreshCw,
   Save,
@@ -24,18 +22,15 @@ import {
   Trash2,
   UtensilsCrossed,
   X,
-  ClipboardList,
 } from 'lucide-react';
 import {
-  auth,
+  activeConfig,
   db,
   getDefaultConfigJson,
-  googleProvider,
   handleFirestoreError,
   isCustomFirebaseConfigActive,
   LS_FIREBASE_CONFIG_KEY,
   OperationType,
-  activeConfig,
 } from '../firebase';
 import type { MenuItem, OrderRecord } from '../types/catering';
 import {
@@ -58,7 +53,6 @@ interface AdminModalProps {
   onClose: () => void;
   menus: MenuItem[];
   hasFirestoreMenus: boolean;
-  currentUser: User | null;
 }
 
 type AdminTab = 'orders' | 'menus' | 'config';
@@ -68,7 +62,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onClose,
   menus,
   hasFirestoreMenus,
-  currentUser,
 }) => {
   const [pinInput, setPinInput] = useState('');
   const [pinVerified, setPinVerified] = useState(false);
@@ -80,7 +73,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [ordersError, setOrdersError] = useState('');
   const [previewProofOrder, setPreviewProofOrder] = useState<OrderRecord | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
 
   // Menu form state
   const [menuId, setMenuId] = useState('');
@@ -104,7 +96,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [fonnteTokenInput, setFonnteTokenInput] = useState(() => getActiveFonnteToken());
   const [adminPinSetting, setAdminPinSetting] = useState(() => getActiveAdminPin());
 
-  // Reset PIN error saat modal dibuka kembali
+  // Reset error saat modal ditutup
   useEffect(() => {
     if (!isOpen) {
       setPinError('');
@@ -112,9 +104,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   }, [isOpen]);
 
-  // Real-time listener orders ketika PIN terverifikasi dan user admin Google sudah login
+  // Real-time listener orders langsung aktif setelah PIN terverifikasi (tanpa login Google)
   useEffect(() => {
-    if (!isOpen || !pinVerified || !currentUser) {
+    if (!isOpen || !pinVerified) {
       return;
     }
 
@@ -134,48 +126,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       (err) => {
         setOrdersLoading(false);
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.toLowerCase().includes('permission')) {
-          setOrdersError(
-            `Akun (${currentUser.email || 'tidak diketahui'}) belum terdaftar sebagai Panitia Admin di Firestore.`
-          );
-        } else {
-          setOrdersError(`Gagal memuat pesanan: ${msg}`);
-        }
+        setOrdersError(`Gagal memuat pesanan dari Firestore: ${msg}`);
       }
     );
 
     return () => unsub();
-  }, [isOpen, pinVerified, currentUser]);
-
-  // Auto-Seeder otomatis saat admin login & koleksi menus di Firestore masih kosong
-  useEffect(() => {
-    if (!isOpen || !pinVerified || !currentUser || hasFirestoreMenus || seedingMenus) {
-      return;
-    }
-
-    const runAutoSeed = async () => {
-      setSeedingMenus(true);
-      try {
-        for (const item of DEFAULT_MENUS) {
-          const idClean = item.id.replace(/[^a-zA-Z0-9_-]/g, '');
-          await setDoc(doc(db, 'menus', idClean), {
-            id: idClean,
-            nama: item.nama,
-            harga: Number(item.harga),
-            gambar: item.gambar,
-            urutan: Number(item.urutan),
-          });
-        }
-        setStatusMessage('Auto-Seeder: 4 paket menu contoh berhasil disimpan ke Firestore.');
-      } catch (err) {
-        console.warn('Auto-Seeder menunggu hak akses admin Firestore:', err);
-      } finally {
-        setSeedingMenus(false);
-      }
-    };
-
-    runAutoSeed();
-  }, [isOpen, pinVerified, currentUser, hasFirestoreMenus, seedingMenus]);
+  }, [isOpen, pinVerified]);
 
   const summary = useMemo(() => {
     return orders.reduce(
@@ -203,30 +159,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setAuthLoading(true);
-    setOrdersError('');
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err) {
-      setOrdersError(
-        `Login Google dibatalkan atau gagal: ${err instanceof Error ? err.message : String(err)}`
-      );
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleGoogleLogout = async () => {
-    await signOut(auth);
-    setOrders([]);
-  };
-
   const handleManualSeedMenus = async () => {
-    if (!currentUser) {
-      setStatusMessage('Silakan login dengan Google Panitia terlebih dahulu untuk mengisi Firestore.');
-      return;
-    }
     setSeedingMenus(true);
     try {
       for (const item of DEFAULT_MENUS) {
@@ -242,10 +175,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleSaveMenu = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) {
-      setStatusMessage('Silakan login dengan Google Panitia terlebih dahulu.');
-      return;
-    }
 
     const cleanId = menuId.trim().replace(/[^a-zA-Z0-9_-]/g, '');
     const cleanNama = menuNama.trim();
@@ -288,10 +217,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   const handleDeleteMenu = async (id: string) => {
-    if (!currentUser) {
-      setStatusMessage('Silakan login dengan Google Panitia terlebih dahulu.');
-      return;
-    }
     try {
       await deleteDoc(doc(db, 'menus', id));
       setStatusMessage(`Paket menu ${id} berhasil dihapus.`);
@@ -408,7 +333,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             <div className="text-center">
               <h3 className="text-base font-extrabold text-slate-900">Verifikasi PIN Panitia</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Masukkan PIN Panitia untuk mengakses rekap pesanan, manajemen menu, dan konfigurasi.
+                Masukkan PIN Panitia untuk mengakses rekap pesanan real-time, kelola menu, dan konfigurasi.
               </p>
             </div>
             <div>
@@ -421,7 +346,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 autoFocus
                 required
               />
-              {pinError && <p className="text-xs text-red-600 font-semibold mt-1.5 text-center">{pinError}</p>}
+              {pinError && (
+                <p className="text-xs text-red-600 font-semibold mt-1.5 text-center">{pinError}</p>
+              )}
             </div>
             <button
               type="submit"
@@ -432,43 +359,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           </form>
         ) : (
           <div className="flex flex-col flex-1 overflow-hidden">
-            {/* Auth Status Bar */}
-            <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-600">Status Akses Firestore:</span>
-                {currentUser ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
-                    ✓ Login: {currentUser.email}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
-                    Belum Login Google Admin
-                  </span>
-                )}
-              </div>
-
-              {currentUser ? (
-                <button
-                  type="button"
-                  onClick={handleGoogleLogout}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  Keluar Google
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  disabled={authLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-700 hover:bg-blue-800 text-white font-bold cursor-pointer disabled:opacity-60"
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  {authLoading ? 'Membuka Google...' : 'Login Google Panitia'}
-                </button>
-              )}
-            </div>
-
             {/* Tabs Navigation */}
             <div className="px-5 pt-3 border-b border-slate-200 flex gap-2 overflow-x-auto bg-white">
               <button
@@ -528,177 +418,155 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* TAB 1: REKAP PESANAN */}
               {activeTab === 'orders' && (
                 <div className="space-y-4">
-                  {!currentUser ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-center space-y-3">
-                      <p className="text-sm font-bold text-amber-900">
-                        Autentikasi Panitia Diperlukan
-                      </p>
-                      <p className="text-xs text-amber-800 max-w-md mx-auto">
-                        Demi keamanan data official (nomor WhatsApp &amp; bukti transfer), silakan masuk menggunakan akun Google Panitia untuk melihat rekap pesanan secara real-time.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleGoogleLogin}
-                        disabled={authLoading}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold cursor-pointer"
-                      >
-                        <LogIn className="w-4 h-4" />
-                        Masuk dengan Google Panitia
-                      </button>
+                  {ordersError && (
+                    <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700 font-semibold">
+                      {ordersError}
+                    </div>
+                  )}
+
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl bg-blue-50 border border-blue-200 p-3.5">
+                      <div className="text-[11px] font-bold uppercase text-blue-700">
+                        Total Pesanan Masuk
+                      </div>
+                      <div className="text-xl font-extrabold text-slate-900 mt-1">
+                        {summary.totalOrders} Kontingen
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-orange-50 border border-orange-200 p-3.5">
+                      <div className="text-[11px] font-bold uppercase text-orange-700">
+                        Total Porsi Dipesan
+                      </div>
+                      <div className="text-xl font-extrabold text-slate-900 mt-1">
+                        {summary.totalPorsi.toLocaleString('id-ID')} Porsi
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3.5">
+                      <div className="text-[11px] font-bold uppercase text-emerald-700">
+                        Total Pemasukan
+                      </div>
+                      <div className="text-xl font-extrabold text-emerald-700 mt-1">
+                        Rp {summary.totalRevenue.toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Toolbar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-extrabold text-slate-800">
+                      Daftar Pesanan Masuk ({orders.length})
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => exportOrdersToCsv(orders)}
+                      disabled={orders.length === 0}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export CSV / Excel
+                    </button>
+                  </div>
+
+                  {/* Table */}
+                  {ordersLoading ? (
+                    <div className="text-center py-8 text-xs text-slate-500">
+                      Memuat data pesanan dari Firestore...
+                    </div>
+                  ) : orders.length === 0 ? (
+                    <div className="text-center py-8 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
+                      Belum ada pesanan masuk pada database Firestore.
                     </div>
                   ) : (
-                    <>
-                      {ordersError && (
-                        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700 font-semibold">
-                          {ordersError}
-                        </div>
-                      )}
-
-                      {/* Summary Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="rounded-xl bg-blue-50 border border-blue-200 p-3.5">
-                          <div className="text-[11px] font-bold uppercase text-blue-700">
-                            Total Pesanan Masuk
-                          </div>
-                          <div className="text-xl font-extrabold text-slate-900 mt-1">
-                            {summary.totalOrders} Kontingen
-                          </div>
-                        </div>
-                        <div className="rounded-xl bg-orange-50 border border-orange-200 p-3.5">
-                          <div className="text-[11px] font-bold uppercase text-orange-700">
-                            Total Porsi Dipesan
-                          </div>
-                          <div className="text-xl font-extrabold text-slate-900 mt-1">
-                            {summary.totalPorsi.toLocaleString('id-ID')} Porsi
-                          </div>
-                        </div>
-                        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3.5">
-                          <div className="text-[11px] font-bold uppercase text-emerald-700">
-                            Total Pemasukan
-                          </div>
-                          <div className="text-xl font-extrabold text-emerald-700 mt-1">
-                            Rp {summary.totalRevenue.toLocaleString('id-ID')}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Toolbar */}
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-sm font-extrabold text-slate-800">
-                          Daftar Pesanan Masuk ({orders.length})
-                        </h3>
-                        <button
-                          type="button"
-                          onClick={() => exportOrdersToCsv(orders)}
-                          disabled={orders.length === 0}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Export CSV / Excel
-                        </button>
-                      </div>
-
-                      {/* Table */}
-                      {ordersLoading ? (
-                        <div className="text-center py-8 text-xs text-slate-500">
-                          Memuat data pesanan dari Firestore...
-                        </div>
-                      ) : orders.length === 0 ? (
-                        <div className="text-center py-8 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
-                          Belum ada pesanan masuk pada database Firestore.
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                          <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                              <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                                <th className="p-2.5">Order ID &amp; Waktu</th>
-                                <th className="p-2.5">Sekolah / Official</th>
-                                <th className="p-2.5">Paket &amp; Porsi</th>
-                                <th className="p-2.5">Jadwal Makan</th>
-                                <th className="p-2.5">Total Bayar</th>
-                                <th className="p-2.5">Aksi</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200">
-                              {orders.map((order) => (
-                                <tr key={order.orderId} className="hover:bg-slate-50">
-                                  <td className="p-2.5 align-top">
-                                    <div className="font-mono font-bold text-slate-900">
-                                      {order.orderId}
-                                    </div>
-                                    <div className="text-[11px] text-slate-500">{order.waktu}</div>
-                                    <span
-                                      className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                        order.waTerkirim
-                                          ? 'bg-emerald-100 text-emerald-800'
-                                          : 'bg-amber-100 text-amber-800'
-                                      }`}
-                                    >
-                                      {order.waTerkirim ? 'WA Terkirim' : 'WA Pending'}
-                                    </span>
-                                  </td>
-                                  <td className="p-2.5 align-top">
-                                    <div className="font-bold text-slate-900">{order.namaSekolah}</div>
-                                    <div className="text-slate-600">{order.namaPj}</div>
-                                    <div className="font-mono text-[11px] text-blue-700">{order.noWa}</div>
-                                  </td>
-                                  <td className="p-2.5 align-top">
-                                    <div className="font-semibold text-slate-800">{order.namaPaket}</div>
-                                    <div className="text-slate-600">
-                                      {order.jumlahPorsi} porsi × Rp{' '}
-                                      {Number(order.hargaSatuan).toLocaleString('id-ID')}
-                                    </div>
-                                    {order.catatan && order.catatan !== '-' && (
-                                      <div className="text-[11px] text-slate-500 italic mt-0.5">
-                                        Catatan: {order.catatan}
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="p-2.5 align-top text-slate-700">
-                                    <div>{order.tanggalMakan}</div>
-                                    <div className="font-semibold">
-                                      {order.sesiMakan} ({order.jamMakan} WIB)
-                                    </div>
-                                  </td>
-                                  <td className="p-2.5 align-top font-extrabold text-emerald-700 whitespace-nowrap">
-                                    Rp {Number(order.totalHarga).toLocaleString('id-ID')}
-                                  </td>
-                                  <td className="p-2.5 align-top">
-                                    <div className="flex flex-col gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => setPreviewProofOrder(order)}
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold cursor-pointer"
-                                      >
-                                        <ImageIcon className="w-3.5 h-3.5" />
-                                        Bukti Bayar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleResendWa(order)}
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold cursor-pointer"
-                                      >
-                                        <Send className="w-3.5 h-3.5" />
-                                        Kirim WA
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteOrder(order.orderId)}
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 font-semibold cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        Hapus
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </>
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                            <th className="p-2.5">Order ID &amp; Waktu</th>
+                            <th className="p-2.5">Sekolah / Official</th>
+                            <th className="p-2.5">Paket &amp; Porsi</th>
+                            <th className="p-2.5">Jadwal Makan</th>
+                            <th className="p-2.5">Total Bayar</th>
+                            <th className="p-2.5">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {orders.map((order) => (
+                            <tr key={order.orderId} className="hover:bg-slate-50">
+                              <td className="p-2.5 align-top">
+                                <div className="font-mono font-bold text-slate-900">
+                                  {order.orderId}
+                                </div>
+                                <div className="text-[11px] text-slate-500">{order.waktu}</div>
+                                <span
+                                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    order.waTerkirim
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {order.waTerkirim ? 'WA Terkirim' : 'WA Pending'}
+                                </span>
+                              </td>
+                              <td className="p-2.5 align-top">
+                                <div className="font-bold text-slate-900">{order.namaSekolah}</div>
+                                <div className="text-slate-600">{order.namaPj}</div>
+                                <div className="font-mono text-[11px] text-blue-700">{order.noWa}</div>
+                              </td>
+                              <td className="p-2.5 align-top">
+                                <div className="font-semibold text-slate-800">{order.namaPaket}</div>
+                                <div className="text-slate-600">
+                                  {order.jumlahPorsi} porsi × Rp{' '}
+                                  {Number(order.hargaSatuan).toLocaleString('id-ID')}
+                                </div>
+                                {order.catatan && order.catatan !== '-' && (
+                                  <div className="text-[11px] text-slate-500 italic mt-0.5">
+                                    Catatan: {order.catatan}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-2.5 align-top text-slate-700">
+                                <div>{order.tanggalMakan}</div>
+                                <div className="font-semibold">
+                                  {order.sesiMakan} ({order.jamMakan} WIB)
+                                </div>
+                              </td>
+                              <td className="p-2.5 align-top font-extrabold text-emerald-700 whitespace-nowrap">
+                                Rp {Number(order.totalHarga).toLocaleString('id-ID')}
+                              </td>
+                              <td className="p-2.5 align-top">
+                                <div className="flex flex-col gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewProofOrder(order)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold cursor-pointer"
+                                  >
+                                    <ImageIcon className="w-3.5 h-3.5" />
+                                    Bukti Bayar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResendWa(order)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold cursor-pointer"
+                                  >
+                                    <Send className="w-3.5 h-3.5" />
+                                    Kirim WA
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteOrder(order.orderId)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 font-semibold cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Hapus
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               )}
@@ -716,7 +584,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     <button
                       type="button"
                       onClick={handleManualSeedMenus}
-                      disabled={seedingMenus || !currentUser}
+                      disabled={seedingMenus}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
@@ -802,7 +670,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                     <button
                       type="submit"
-                      disabled={menuSaving || !currentUser}
+                      disabled={menuSaving}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                     >
                       <Plus className="w-4 h-4" />
