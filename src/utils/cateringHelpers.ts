@@ -200,7 +200,7 @@ export async function uploadBuktiBayar(
     })();
 
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Storage upload timeout')), 8000);
+      setTimeout(() => reject(new Error('Storage upload timeout')), 4000);
     });
 
     const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);

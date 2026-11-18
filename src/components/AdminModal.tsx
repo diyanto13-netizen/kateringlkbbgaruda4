@@ -3,9 +3,8 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocsFromServer,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -60,6 +59,43 @@ interface AdminModalProps {
 }
 
 type AdminTab = 'orders' | 'menus' | 'config';
+
+function getOrderTimestampMs(order: OrderRecord): number {
+  const raw = order.createdAt as
+    | { toMillis?: () => number; seconds?: number; nanoseconds?: number }
+    | Date
+    | number
+    | string
+    | null
+    | undefined;
+
+  if (raw && typeof raw === 'object') {
+    if (typeof (raw as { toMillis?: () => number }).toMillis === 'function') {
+      return (raw as { toMillis: () => number }).toMillis();
+    }
+    if (typeof (raw as { seconds?: number }).seconds === 'number') {
+      return (raw as { seconds: number }).seconds * 1000;
+    }
+    if (raw instanceof Date) {
+      return raw.getTime();
+    }
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return raw;
+  }
+
+  // Fallback parse dd/MM/yyyy HH:mm:ss
+  if (typeof order.waktu === 'string') {
+    const m = order.waktu.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
+    if (m) {
+      const iso = `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6]}+07:00`;
+      const parsed = Date.parse(iso);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
 
 export const AdminModal: React.FC<AdminModalProps> = ({
   isOpen,
@@ -138,17 +174,21 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setAdminPinSetting(cloudAdminPin);
   }, [cloudAdminPin]);
 
-  // Reset error saat modal ditutup
+  // Reset error & filter saat modal ditutup agar pesanan terbaru tidak tersembunyi saat dibuka kembali
   useEffect(() => {
     if (!isOpen) {
       setPinError('');
       setStatusMessage('');
       setConfirmDeleteOrderId(null);
       setConfirmDeleteMenuId(null);
+      setSearchQuery('');
+      setStatusFilter('ALL');
+      setDateFilter('ALL');
     }
   }, [isOpen]);
 
   // Real-time listener orders langsung aktif setelah PIN terverifikasi (tanpa login Google)
+  // Mengambil koleksi penuh dan mengurutkan di client agar aman dari kendala index atau doc lama tanpa createdAt
   useEffect(() => {
     if (!isOpen || !pinVerified) {
       return;
@@ -156,13 +196,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
     setOrdersLoading(true);
     setOrdersError('');
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const ordersCol = collection(db, 'orders');
     const unsub = onSnapshot(
-      q,
+      ordersCol,
       (snapshot) => {
         const list: OrderRecord[] = [];
         snapshot.forEach((docSnap) => {
           list.push(docSnap.data() as OrderRecord);
+        });
+        list.sort((a, b) => {
+          const diff = getOrderTimestampMs(b) - getOrderTimestampMs(a);
+          if (diff !== 0) return diff;
+          return (b.orderId || '').localeCompare(a.orderId || '');
         });
         setOrders(list);
         setOrdersLoading(false);
@@ -176,6 +221,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
     return () => unsub();
   }, [isOpen, pinVerified]);
+
+  const handleRefreshOrders = async () => {
+    setOrdersLoading(true);
+    setOrdersError('');
+    try {
+      const snapshot = await getDocsFromServer(collection(db, 'orders'));
+      const list: OrderRecord[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push(docSnap.data() as OrderRecord);
+      });
+      list.sort((a, b) => {
+        const diff = getOrderTimestampMs(b) - getOrderTimestampMs(a);
+        if (diff !== 0) return diff;
+        return (b.orderId || '').localeCompare(a.orderId || '');
+      });
+      setOrders(list);
+      showStatus(`Data rekap berhasil disegarkan langsung dari Cloud (${list.length} pesanan).`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setOrdersError(`Gagal menyegarkan data pesanan dari Firestore: ${msg}`);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -720,16 +789,50 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       </select>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => void handleExportExcel()}
-                      disabled={filteredOrders.length === 0 || exportingExcel}
-                      className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50 shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      {exportingExcel ? 'Menyiapkan Excel...' : 'Export Excel (.XLSX) Siap Cetak'}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void handleRefreshOrders()}
+                        disabled={ordersLoading}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                        title="Ambil data terbaru langsung dari Cloud Firestore"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${ordersLoading ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleExportExcel()}
+                        disabled={filteredOrders.length === 0 || exportingExcel}
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        {exportingExcel ? 'Menyiapkan Excel...' : 'Export Excel (.XLSX) Siap Cetak'}
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Active Filter Notice */}
+                  {(searchQuery.trim() !== '' || statusFilter !== 'ALL' || dateFilter !== 'ALL') &&
+                    orders.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                        <span>
+                          Menampilkan <strong>{filteredOrders.length}</strong> dari{' '}
+                          <strong>{orders.length}</strong> total pesanan (filter aktif).
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setStatusFilter('ALL');
+                            setDateFilter('ALL');
+                          }}
+                          className="font-bold text-amber-800 underline hover:text-amber-950 cursor-pointer"
+                        >
+                          Reset Filter
+                        </button>
+                      </div>
+                    )}
 
                   {/* Table */}
                   {ordersLoading ? (
@@ -737,10 +840,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       Memuat data pesanan dari Firestore...
                     </div>
                   ) : filteredOrders.length === 0 ? (
-                    <div className="text-center py-8 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
-                      {orders.length === 0
-                        ? 'Belum ada pesanan masuk pada database Firestore.'
-                        : 'Tidak ada pesanan yang cocok dengan filter pencarian.'}
+                    <div className="text-center py-8 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500 space-y-2">
+                      <div>
+                        {orders.length === 0
+                          ? `Belum ada pesanan masuk pada database Firestore (${activeConfig.projectId}).`
+                          : 'Tidak ada pesanan yang cocok dengan filter pencarian.'}
+                      </div>
+                      {orders.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setStatusFilter('ALL');
+                            setDateFilter('ALL');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                        >
+                          Tampilkan Semua ({orders.length} Pesanan)
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="overflow-x-auto border border-slate-200 rounded-xl">

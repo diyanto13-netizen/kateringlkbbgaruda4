@@ -3,10 +3,9 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import {
   CalendarDays,
@@ -92,14 +91,15 @@ export default function App() {
 
   // Load menus real-time from Firestore, Auto-Seed if empty, fallback to DEFAULT_MENUS
   useEffect(() => {
-    const q = query(collection(db, 'menus'), orderBy('urutan', 'asc'));
+    const menusCol = collection(db, 'menus');
     const unsub = onSnapshot(
-      q,
+      menusCol,
       (snapshot) => {
         const list: MenuItem[] = [];
         snapshot.forEach((docSnap) => {
           list.push(docSnap.data() as MenuItem);
         });
+        list.sort((a, b) => Number(a.urutan ?? 999) - Number(b.urutan ?? 999));
         if (list.length > 0) {
           setFirestoreMenus(list);
           setHasFirestoreMenus(true);
@@ -333,6 +333,34 @@ export default function App() {
       setSubmitStep('Mengunggah bukti transfer...');
       const { fileUrl } = await uploadBuktiBayar(orderId, buktiFile);
 
+      setSubmitStep('Menyimpan pesanan ke database panitia...');
+      const orderPayload: OrderRecord = {
+        waktu,
+        createdAt: serverTimestamp(),
+        orderId,
+        namaSekolah: cleanSekolah,
+        namaPj: cleanPj,
+        noWa: cleanWa,
+        namaPaket: selectedMenu.nama,
+        hargaSatuan,
+        jumlahPorsi: porsiFinal,
+        tanggalMakan,
+        sesiMakan,
+        jamMakan,
+        jadwalMakan,
+        totalHarga,
+        fileUrl,
+        catatan: cleanCatatan,
+        waTerkirim: false,
+        statusPembayaran: 'Pending',
+      };
+
+      try {
+        await setDoc(doc(db, 'orders', orderId), orderPayload);
+      } catch (fsErr) {
+        handleFirestoreError(fsErr, OperationType.CREATE, `orders/${orderId}`);
+      }
+
       setSubmitStep('Mengirim kwitansi WhatsApp...');
       const textKwitansi = buatTeksKwitansi({
         orderId,
@@ -352,35 +380,17 @@ export default function App() {
         cloudFonnteToken
       );
 
-      setSubmitStep('Menyimpan pesanan ke database panitia...');
-      const orderPayload: OrderRecord = {
-        waktu,
-        createdAt: serverTimestamp(),
-        orderId,
-        namaSekolah: cleanSekolah,
-        namaPj: cleanPj,
-        noWa: cleanWa,
-        namaPaket: selectedMenu.nama,
-        hargaSatuan,
-        jumlahPorsi: porsiFinal,
-        tanggalMakan,
-        sesiMakan,
-        jamMakan,
-        jadwalMakan,
-        totalHarga,
-        fileUrl,
-        catatan: cleanCatatan,
-        waTerkirim,
-        statusPembayaran: 'Pending',
-      };
-
-      try {
-        await setDoc(doc(db, 'orders', orderId), orderPayload);
-      } catch (fsErr) {
-        handleFirestoreError(fsErr, OperationType.CREATE, `orders/${orderId}`);
+      if (waTerkirim) {
+        try {
+          await updateDoc(doc(db, 'orders', orderId), {
+            waTerkirim: true,
+          });
+        } catch (updateWaErr) {
+          console.warn('Pesanan tersimpan, gagal memperbarui flag waTerkirim:', updateWaErr);
+        }
       }
 
-      setCompletedOrder(orderPayload);
+      setCompletedOrder({ ...orderPayload, waTerkirim });
       resetForm();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

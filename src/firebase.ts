@@ -70,6 +70,7 @@ const db: Firestore = activeConfig.firestoreDatabaseId
 
 const auth: Auth = getAuth(app);
 const storage: FirebaseStorage = getStorage(app);
+storage.maxUploadRetryTime = 3500;
 const googleProvider = new GoogleAuthProvider();
 
 export {
