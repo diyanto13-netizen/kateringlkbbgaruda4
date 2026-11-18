@@ -226,13 +226,13 @@ export default function App() {
     }
 
     if (!file.type.startsWith('image/')) {
-      setFormError('File bukti transfer harus berupa foto atau gambar (JPG, PNG, WEBP).');
+      triggerFormError('File bukti transfer harus berupa foto atau gambar (JPG, PNG, WEBP).');
       clearSelectedFile();
       return;
     }
 
-    if (file.size > 3 * 1024 * 1024) {
-      setFormError('Ukuran foto bukti transfer maksimal 3MB. Silakan pilih file yang lebih kecil.');
+    if (file.size > 10 * 1024 * 1024) {
+      triggerFormError('Ukuran foto bukti transfer maksimal 10MB. Silakan pilih file yang lebih kecil.');
       clearSelectedFile();
       return;
     }
@@ -810,7 +810,7 @@ export default function App() {
 
               <div>
                 <label htmlFor="buktiBayar" className="field-label">
-                  Upload Bukti Transfer (Foto/Gambar, Maks. 3MB){' '}
+                  Upload Bukti Transfer (Foto/Gambar, Maks. 10MB){' '}
                   <span className="field-required">*</span>
                 </label>
 
@@ -829,7 +829,7 @@ export default function App() {
                     {buktiFile ? 'Ganti Foto Bukti Transfer' : 'Ketuk untuk Pilih Foto Bukti Transfer'}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Format JPG, PNG, atau WEBP • Ukuran maksimal 3MB
+                    Format JPG, PNG, atau WEBP • Ukuran maksimal 10MB
                   </div>
                   <input
                     ref={fileInputRef}

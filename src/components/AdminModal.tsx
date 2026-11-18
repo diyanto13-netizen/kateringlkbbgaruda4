@@ -705,6 +705,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* TAB 1: REKAP PESANAN */}
               {activeTab === 'orders' && (
                 <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600">
+                    <span>
+                      Terhubung ke Cloud Firestore:{' '}
+                      <strong className="font-mono text-slate-800">{activeConfig.projectId}</strong>
+                      {activeConfig.firestoreDatabaseId && (
+                        <>
+                          {' '}
+                          • DB:{' '}
+                          <strong className="font-mono text-slate-800">
+                            {activeConfig.firestoreDatabaseId}
+                          </strong>
+                        </>
+                      )}
+                    </span>
+                    <span className="font-semibold text-emerald-700">
+                      Total tersimpan: {orders.length} pesanan
+                    </span>
+                  </div>
+
                   {ordersError && (
                     <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700 font-semibold">
                       {ordersError}
